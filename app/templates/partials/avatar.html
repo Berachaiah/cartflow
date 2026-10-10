@@ -1,0 +1,50 @@
+{# ==========================================================================
+   Avatar — an uploaded photo when there is one, the default profile picture
+   when there isn't.
+
+   The default used to be a monogram: initials on a colour derived from the
+   username. It was replaced because a coloured block of letters reads as a
+   *thing* — a label, a tag, a logo — and a face-shaped grey silhouette reads as
+   "no photo yet", which is what it means. It is also what every platform a
+   CartFlow user already has an account on does, so nobody has to learn it, and
+   it stops a 96px profile header from shouting two letters at you.
+
+   The silhouette is `#cf-avatar`, a <symbol> defined once in base.html and
+   cloned here through <use> so its fills can be CSS variables (--c-card for the
+   disc, --c-muted for the figure) and track both themes. Anything that renders
+   an avatar in the browser instead of on the server — profile.html's follower
+   rows, Discover's search results — clones the same symbol.
+
+   Pass `src` for a REAL account — get it from the `avatar_src` Jinja global,
+   which takes a User and a size name and returns None when the user has no
+   photo (or when Cloudinary isn't configured):
+
+     {% from "partials/avatar.html" import avatar %}
+     {{ avatar(u.display_name, u.username, "w-10 h-10", "rounded-xl",
+               src=avatar_src(u, "sm")) }}
+
+   Curated placeholder identities (the sample businesses in the feed and
+   Discover) deliberately pass NO src: they have no `users` row, so there is
+   nothing to look up.
+
+   `seed` and `text_class` are kept in the signature — most call sites pass them
+   positionally, and `seed` is still what profile.html derives its cover gradient
+   from — but neither affects the drawing any more.
+
+   `extra_class` lets callers add borders/ring/transition without editing here.
+
+   Both branches keep the same box classes so swapping one for the other never
+   shifts the layout, and both are aria-hidden with an empty alt: the account's
+   name is always rendered as real text next to the picture, so announcing it
+   twice is noise, not information.
+========================================================================== #}
+{% macro avatar(name, seed, size_class="w-10 h-10", radius_class="rounded-xl", extra_class="", text_class="text-sm", src=none) %}
+{%- if src -%}
+<img src="{{ src }}" alt="" loading="lazy" decoding="async"
+     class="{{ size_class }} {{ radius_class }} {{ extra_class }} shrink-0 object-cover bg-card"
+     aria-hidden="true">
+{%- else -%}
+<svg class="{{ size_class }} {{ radius_class }} {{ extra_class }} shrink-0 overflow-hidden"
+     aria-hidden="true" focusable="false"><use href="#cf-avatar"/></svg>
+{%- endif -%}
+{%- endmacro %}

@@ -1,0 +1,605 @@
+{% extends "base.html" %}
+
+{# ==========================================================================
+   ORDERS — the buyer's post-purchase view (docs/product/14-orders-and-delivery.md).
+
+   THE HONESTY RULE, and it matters more here than anywhere else in the app.
+
+   Doc 14 §25 names six tables — orders, order_items, order_status_history,
+   deliveries, disputes, refunds — and NOT ONE of them exists (grep app/models).
+   Neither does `products`, nor a cart, nor a payment record. So this page has
+   zero rows to render, and it must not invent any. A fabricated order is worse
+   than a fabricated metric: an order card carries a business name, an amount, a
+   payment reference and an escrow state, so a sample one reads as "you bought
+   this and your money is being held" — a lie about the user's own money. The
+   Business Hub's rule was "never render the ₦48,200 example as revenue"; the
+   same rule here forbids a single specimen order card, in any tab.
+
+   What that leaves is still a real page, because doc 14 is mostly RULES, and
+   rules are honest content:
+
+     - §3 lifecycle       → the stage-by-stage walkthrough of what will happen.
+     - §4 / §17 statuses  → what each order status and each escrow status means.
+     - §8-10 delivery     → pickup vs seller delivery, and that CartFlow assigns
+                            no couriers (§10) — worth knowing BEFORE you buy.
+     - §15-16 escrow      → confirming release funds; 72-hour auto-release.
+     - §20-22 problems    → dispute pauses escrow; who may cancel, and when.
+
+   So: four real tabs (§18 Current / Completed / Cancelled / Refunded) that are
+   honestly empty, plus the reference panels that explain the system. When the
+   orders API (§26) lands, `orders` arrives in this route's context, the empty
+   states step aside for a list, and none of the explanatory markup changes.
+
+   The ONE query this page makes is real: whether the viewer owns a business. A
+   seller's INCOMING orders are the Business Hub's job (§6, doc 16 §4), not this
+   page's — /orders is the customer side. Rather than silently show them nothing,
+   a seller gets a card that points at /dashboard#orders.
+
+   Context: `current_user` (may be None), `business` (Organization | None).
+
+   States, decided server-side:
+     - signed out → a log-in prompt plus the explainers. Not a redirect: /orders
+       is a link people bookmark, and an order-tracking page that explains how
+       ordering works is useful to someone still deciding to trust the app.
+     - signed in  → the tabs, empty, plus the same explainers.
+========================================================================== #}
+
+{# --- doc §18: the four order-history categories, in the doc's own order.
+   `body` says WHY the tab is empty for a first-time buyer and what to do next;
+   `cta` is only ever a route that exists (/marketplace does), because a button
+   to nowhere is worse than no button. --- #}
+{% set tabs = [
+    {"key": "current",   "label": "Current",   "icon": "local_shipping",
+     "title": "No orders in progress",
+     "body": "Orders you have paid for appear here while the business confirms, prepares and hands them over. Nothing is in flight right now.",
+     "cta": "Browse the shop", "href": "/marketplace"},
+    {"key": "completed", "label": "Completed", "icon": "task_alt",
+     "title": "No completed orders yet",
+     "body": "An order lands here once you confirm you received it and the escrow funds are released to the business.",
+     "cta": "Browse the shop", "href": "/marketplace"},
+    {"key": "cancelled", "label": "Cancelled", "icon": "cancel",
+     "title": "Nothing cancelled",
+     "body": "You can cancel an order until the business confirms it; after that only the business can, and only before it starts preparing.",
+     "cta": None, "href": None},
+    {"key": "refunded",  "label": "Refunded",  "icon": "currency_exchange",
+     "title": "No refunds",
+     "body": "Refunds are reviewed by CartFlow admins after a dispute, and show up here with their status once approved.",
+     "cta": None, "href": None}
+] %}
+
+{# --- doc §3 lifecycle, collapsed to the stages a BUYER can see. "Seller
+   notified" is in the doc's chain but is invisible to the customer, so it is
+   folded into the confirm step rather than shown as a stage that never lights
+   up. `who` is the honest bit: it names who has to act next, which is the
+   question people actually have when an order stalls. --- #}
+{% set lifecycle = [
+    {"icon": "payments",       "title": "Payment successful",   "who": "You",      "body": "You check out and pay. The money goes into escrow — CartFlow holds it, the business does not have it yet."},
+    {"icon": "receipt_long",   "title": "Order created",        "who": "CartFlow", "body": "You get an order number and a receipt, and the business is notified straight away."},
+    {"icon": "how_to_reg",     "title": "Business confirms",    "who": "Business", "body": "The business accepts the order. Until this point you can still cancel it yourself."},
+    {"icon": "inventory_2",    "title": "Preparing",            "who": "Business", "body": "Optional stage. Some businesses mark it so you know they have started."},
+    {"icon": "storefront",     "title": "Ready for pickup",     "who": "Business", "body": "Pickup orders: you get the pickup address and any instructions, and collect the order yourself."},
+    {"icon": "local_shipping", "title": "Delivered",            "who": "Business", "body": "Seller-delivery orders: the business delivers it themselves and marks it delivered."},
+    {"icon": "verified",       "title": "You confirm",          "who": "You",      "body": "Confirming that you received the order releases the escrow funds immediately."},
+    {"icon": "check_circle",   "title": "Completed",            "who": "—",        "body": "The order closes and the receipt stays in your history."}
+] %}
+
+{# --- doc §4. `tone` drives the dot colour: the seven happy-path statuses read
+   as progress, the three exceptions as exceptions. --- #}
+{% set order_statuses = [
+    {"name": "Pending payment",  "tone": "wait", "body": "Checkout started, payment not completed. No order exists for the business yet."},
+    {"name": "Paid",             "tone": "ok",   "body": "Payment succeeded and is held in escrow. The business has been notified."},
+    {"name": "Seller confirmed", "tone": "ok",   "body": "The business accepted your order."},
+    {"name": "Preparing",        "tone": "ok",   "body": "The business is putting your order together."},
+    {"name": "Ready for pickup", "tone": "ok",   "body": "Pickup orders only. Collect it at the address on the order."},
+    {"name": "Delivered",        "tone": "ok",   "body": "Seller-delivery orders only. Marked delivered by the business — confirm it once it reaches you."},
+    {"name": "Completed",        "tone": "done", "body": "You confirmed delivery and escrow was released. The order is closed."},
+    {"name": "Cancelled",        "tone": "bad",  "body": "Cancelled by you before confirmation, or by the business before preparing. Refunded where money had already moved."},
+    {"name": "Refunded",         "tone": "bad",  "body": "Money returned to you after an admin review."},
+    {"name": "Disputed",         "tone": "bad",  "body": "You raised a problem. Escrow release is paused until CartFlow resolves it."}
+] %}
+
+{# --- doc §17. Four states, visible for the whole life of an order. --- #}
+{% set escrow_states = [
+    {"name": "Pending",  "icon": "hourglass_top",  "body": "Payment has not settled yet, so nothing is being held."},
+    {"name": "Held",     "icon": "lock",           "body": "Your money is with CartFlow, not the business. This is where it sits for most of the order."},
+    {"name": "Released", "icon": "lock_open",      "body": "Paid out to the business — either you confirmed delivery, or the 72-hour auto-release passed."},
+    {"name": "Refunded", "icon": "keyboard_return", "body": "Returned to you instead of being paid out."}
+] %}
+
+{# A chip that promises nothing without saying what it waits on, an empty state,
+   and a section heading — all three now come from partials/ui.html. They used to
+   be declared here AND in dashboard.html with different padding, tile sizes and
+   title weights, which is exactly the drift that made moving between the two
+   pages feel like moving between products. One definition, both pages. #}
+{% from "partials/ui.html" import soon, empty_state as empty, section_head, page_head %}
+
+
+{% block content %}
+<div class="page-wide xl:grid xl:grid-cols-[minmax(0,1fr)_300px] xl:gap-6">
+
+<div class="min-w-0 space-y-4">
+
+    <!-- ===================== PAGE HEAD =====================
+         Title and its one action on the same line. -->
+    <div class="flex items-start justify-between gap-3">
+        {{ page_head("Orders",
+                     "Everything you have bought, and where each one has got to."
+                     if current_user else
+                     "Track a purchase from payment to pickup — and see how escrow protects it.") }}
+        {# The escrow explainer is the single most useful thing on an empty
+           orders page, so it gets a permanent affordance rather than living
+           only at the bottom of a scroll. #}
+        <button type="button" data-open-sheet="escrowSheet"
+                class="shrink-0 glass border border-border rounded-full px-3 py-1.5 text-[12.5px] font-semibold flex items-center gap-1.5 hover-card">
+            <span class="material-symbols-outlined text-[16px] text-primary" aria-hidden="true">lock</span>
+            Escrow
+        </button>
+    </div>
+
+    {% if not current_user %}
+    <!-- ============ STATE 1: signed out ============
+         A prompt, not a redirect. The explainer panels below still render, so
+         this page answers "how does buying on CartFlow work?" for someone who
+         has not signed up yet.
+
+         Horizontal, not a centred hero: the two buttons are the point, and a
+         64px icon over a 24px heading over two lines of prose over a button row
+         spent half a phone screen saying "log in". -->
+    <div class="glass panel panel-pad">
+        <div class="flex items-start gap-3">
+            <span class="w-10 h-10 rounded-2xl bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0" aria-hidden="true">
+                <span class="material-symbols-outlined text-[21px] text-primary">receipt_long</span>
+            </span>
+            <div class="min-w-0 flex-1">
+                <h2 class="font-display text-[15px] font-bold leading-tight">Log in to see your orders</h2>
+                <p class="caption-text text-[12.5px] mt-1 leading-snug">
+                    Your order history, receipts and escrow status are tied to your account.
+                </p>
+                <div class="flex items-center gap-2 mt-2.5">
+                    <a href="/login?next=/orders"
+                       class="btn-glow bg-primary text-background font-bold rounded-full px-4 py-2 text-[13px]">Log in</a>
+                    <a href="/signup"
+                       class="glass font-semibold rounded-full px-4 py-2 text-[13px] hover-card">Create account</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% else %}
+    <!-- ============ STATE 2: signed in ============
+         Four real tabs, all honestly empty. The counts are hardcoded 0 because
+         they ARE 0 — there is no orders table, so no query could return
+         anything else. When one exists, each count comes from the context and
+         the markup is unchanged. -->
+
+    <div class="sticky top-14 sm:top-16 z-30 -mx-3 px-3 py-2 border-b border-border blur-bg sm:mx-0 sm:px-0 sm:border-0 sm:py-0 sm:static">
+        <div class="flex gap-1.5 overflow-x-auto hide-scrollbar" role="tablist" aria-label="Order history">
+            {% for t in tabs %}
+            <button type="button" role="tab" id="ordTab-{{ t.key }}"
+                    data-ord-tab="{{ t.key }}"
+                    aria-controls="ordPanel-{{ t.key }}"
+                    aria-selected="{{ 'true' if loop.first else 'false' }}"
+                    class="ord-tab shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] whitespace-nowrap border transition-colors {{ 'ord-tab-on border-transparent font-semibold' if loop.first else 'glass border-border' }}">
+                <span class="material-symbols-outlined text-[16px]" aria-hidden="true">{{ t.icon }}</span>
+                {{ t.label }}
+                <span class="text-[10.5px] font-semibold opacity-70">0</span>
+            </button>
+            {% endfor %}
+        </div>
+    </div>
+
+    {% for t in tabs %}
+    <section id="ordPanel-{{ t.key }}" role="tabpanel" aria-labelledby="ordTab-{{ t.key }}"
+             class="ord-panel" {% if not loop.first %}hidden{% endif %}>
+        {{ empty(t.icon, t.title, t.body, t.cta, t.href) }}
+    </section>
+    {% endfor %}
+
+    {# A seller's INCOMING orders are the Business Hub's page (doc 14 §6), not
+       this one. Only rendered for someone who actually owns a business, and the
+       gate is the org row rather than `is_seller` — same reason as the Hub: the
+       flag is a mirror and can drift, the row cannot.
+
+       One row, not a card: the whole message is "wrong page, go here", and a
+       card with its own icon tile, heading, paragraph and button spent 150px
+       saying it. #}
+    {% if business %}
+    <a href="/dashboard#orders" class="glass panel row-link">
+        <span class="w-9 h-9 rounded-xl bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0" aria-hidden="true">
+            <span class="material-symbols-outlined text-[19px] text-primary">storefront</span>
+        </span>
+        <span class="min-w-0 flex-1">
+            <span class="block text-[13.5px] font-semibold">Selling, not buying?</span>
+            <span class="block text-[11.5px] text-muted truncate">
+                Orders placed with {{ business.short_name or business.official_name }} live in your Business Hub
+            </span>
+        </span>
+        <span class="material-symbols-outlined text-[20px] text-muted shrink-0" aria-hidden="true">chevron_right</span>
+    </a>
+    {% endif %}
+    {% endif %}
+
+    <!-- ===================== HOW AN ORDER WORKS (doc §3) =====================
+         Rendered for everyone, signed in or not. It is the reason this page is
+         worth visiting with zero orders: it says exactly what will happen to
+         your money and who has to act at each stage. Rules, not data — so
+         nothing here is invented. -->
+    <section aria-labelledby="ordFlowHead">
+        {{ section_head("How an order works",
+                        "Every purchase moves through the same stages, and you always see which
+                         one you're on.",
+                        id="ordFlowHead") }}
+        <ol class="glass panel panel-pad space-y-0">
+            {% for s in lifecycle %}
+            <li class="flow-step flex gap-3 {{ 'pb-3.5' if not loop.last else '' }}">
+                <div class="relative flex flex-col items-center shrink-0">
+                    <span class="w-8 h-8 rounded-full bg-card border border-border flex items-center justify-center" aria-hidden="true">
+                        <span class="material-symbols-outlined text-[17px] text-primary">{{ s.icon }}</span>
+                    </span>
+                    {% if not loop.last %}<span class="flow-line" aria-hidden="true"></span>{% endif %}
+                </div>
+                <div class="min-w-0 flex-1 pt-0.5">
+                    <p class="text-[13px] font-semibold flex items-center gap-2 flex-wrap">
+                        {{ s.title }}
+                        {% if s.who != "—" %}
+                        <span class="text-[9.5px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-card border border-border text-muted">{{ s.who }}</span>
+                        {% endif %}
+                    </p>
+                    <p class="caption-text text-[12px] mt-0.5 leading-snug">{{ s.body }}</p>
+                </div>
+            </li>
+            {% endfor %}
+        </ol>
+        <button type="button" data-open-sheet="statusSheet"
+                class="w-full mt-2.5 glass border border-border rounded-2xl px-3.5 py-2.5 text-[13px] font-semibold flex items-center justify-between hover-card">
+            <span class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-[18px] text-muted" aria-hidden="true">list_alt</span>
+                What every order status means
+            </span>
+            <span class="material-symbols-outlined text-[18px] text-muted" aria-hidden="true">chevron_right</span>
+        </button>
+    </section>
+
+    <!-- ===================== DELIVERY METHODS (doc §8-10) =====================
+         Both are stated plainly, including the thing that surprises people:
+         CartFlow does not assign couriers (§10). Better read here than
+         discovered after paying. -->
+    <section aria-labelledby="ordDeliveryHead">
+        {{ section_head("Getting your order",
+                        "Each business chooses which of these it offers; you pick one at checkout.",
+                        id="ordDeliveryHead") }}
+        {# Icon beside the text, not above it. Stacked, each tile sat alone on a
+           line with 250px of empty space next to it — two cards' worth of that is
+           a whole screen of nothing. #}
+        <div class="grid sm:grid-cols-2 gap-2.5">
+            <div class="glass rounded-2xl p-3.5 flex items-start gap-3">
+                <span class="w-9 h-9 rounded-xl bg-card border border-border flex items-center justify-center shrink-0" aria-hidden="true">
+                    <span class="material-symbols-outlined text-[19px] text-primary">storefront</span>
+                </span>
+                <div class="min-w-0">
+                    <h3 class="text-[13px] font-semibold">Pickup</h3>
+                    <p class="caption-text text-[12px] mt-0.5 leading-snug">
+                        The business gives you an address and any instructions. You collect the
+                        order yourself and confirm it when you have it.
+                    </p>
+                </div>
+            </div>
+            <div class="glass rounded-2xl p-3.5 flex items-start gap-3">
+                <span class="w-9 h-9 rounded-xl bg-card border border-border flex items-center justify-center shrink-0" aria-hidden="true">
+                    <span class="material-symbols-outlined text-[19px] text-primary">local_shipping</span>
+                </span>
+                <div class="min-w-0">
+                    <h3 class="text-[13px] font-semibold">Seller delivery</h3>
+                    <p class="caption-text text-[12px] mt-0.5 leading-snug">
+                        You give an address and phone number, and the business delivers it
+                        themselves. CartFlow assigns no couriers, so timing is between you two.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===================== IF SOMETHING GOES WRONG (doc §20-22) ===================== -->
+    <section aria-labelledby="ordHelpHead">
+        {{ section_head("If something goes wrong",
+                        "Escrow exists for exactly this. Money only leaves it when you say so — or
+                         after the 72-hour window on a delivered order.",
+                        id="ordHelpHead") }}
+        <div class="glass panel divide-y divide-border">
+            <div class="px-3.5 py-3 flex items-start gap-3">
+                <span class="material-symbols-outlined text-[19px] text-primary shrink-0 mt-0.5" aria-hidden="true">gavel</span>
+                <div class="min-w-0">
+                    <p class="text-[13px] font-semibold">Raise a dispute</p>
+                    <p class="caption-text text-[12px] mt-0.5 leading-snug">
+                        Wrong item, missing item, damaged product, or an order that never arrived.
+                        Opening a dispute pauses the escrow release until CartFlow resolves it.
+                    </p>
+                </div>
+            </div>
+            <div class="px-3.5 py-3 flex items-start gap-3">
+                <span class="material-symbols-outlined text-[19px] text-primary shrink-0 mt-0.5" aria-hidden="true">block</span>
+                <div class="min-w-0">
+                    <p class="text-[13px] font-semibold">Cancelling</p>
+                    <p class="caption-text text-[12px] mt-0.5 leading-snug">
+                        You can cancel until the business confirms the order. After that, only the
+                        business can cancel, and only before it starts preparing. Anything already
+                        paid follows the refund flow.
+                    </p>
+                </div>
+            </div>
+            <div class="px-3.5 py-3 flex items-start gap-3">
+                <span class="material-symbols-outlined text-[19px] text-primary shrink-0 mt-0.5" aria-hidden="true">currency_exchange</span>
+                <div class="min-w-0">
+                    <p class="text-[13px] font-semibold">Refunds</p>
+                    <p class="caption-text text-[12px] mt-0.5 leading-snug">
+                        A CartFlow admin reviews the dispute and initiates the refund. It moves
+                        through pending, approved and completed, and you are notified at each step.
+                    </p>
+                </div>
+            </div>
+            <div class="px-3.5 py-3 flex items-start gap-3">
+                <span class="material-symbols-outlined text-[19px] text-muted shrink-0 mt-0.5" aria-hidden="true">download</span>
+                <div class="min-w-0">
+                    <p class="text-[13px] font-semibold flex items-center gap-2 flex-wrap">
+                        Receipts {{ soon("no orders or payments table yet — doc 14 §25") }}
+                    </p>
+                    <p class="caption-text text-[12px] mt-0.5 leading-snug">
+                        Every order will come with a receipt — order number, items, prices, payment
+                        reference, delivery method and date — emailed to you and downloadable here.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+</div>
+
+<!-- ===================== DESKTOP ASIDE =====================
+     Secondary reference, xl+ only. On phones the same content is reachable
+     through the two sheets, so nothing here is the only route to anything. -->
+<aside class="hidden xl:block">
+    <div class="sticky top-20 space-y-4">
+
+        <div class="glass panel p-4">
+            <h3 class="font-display text-[15px] font-bold leading-tight">Escrow, in short</h3>
+            <ul class="mt-3 space-y-3">
+                {% for e in escrow_states %}
+                <li class="flex items-start gap-2.5">
+                    <span class="material-symbols-outlined text-[18px] text-primary shrink-0 mt-0.5" aria-hidden="true">{{ e.icon }}</span>
+                    <div class="min-w-0">
+                        <p class="text-xs font-semibold">{{ e.name }}</p>
+                        <p class="caption-text leading-snug mt-0.5">{{ e.body }}</p>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        <div class="glass panel p-4">
+            <h3 class="font-display text-[15px] font-bold leading-tight">The 72-hour rule</h3>
+            <p class="caption-text mt-2 leading-relaxed">
+                If a business marks an order delivered and you never respond, escrow releases
+                automatically 72 hours later. You get reminders before that happens — and a
+                dispute stops the clock.
+            </p>
+        </div>
+
+        <div class="glass panel p-4">
+            <h3 class="font-display text-[15px] font-bold leading-tight">Order statuses</h3>
+            <p class="caption-text mt-1.5 leading-relaxed">Ten in total, seven on the happy path.</p>
+            <button type="button" data-open-sheet="statusSheet"
+                    class="w-full mt-3 border border-border rounded-xl px-3 py-2 text-xs font-semibold flex items-center justify-between hover:bg-card transition-colors">
+                See the full list
+                <span class="material-symbols-outlined text-[16px] text-muted" aria-hidden="true">chevron_right</span>
+            </button>
+        </div>
+
+    </div>
+</aside>
+
+</div>
+{% endblock %}
+
+
+{% block modals %}
+{# Two reference sheets. No forms and no network calls — every endpoint in doc
+   §26 (/api/orders/*) is unbuilt, so there is nothing here to submit. They exist
+   because the aside is xl-only and this content is most needed on a phone. #}
+
+<!-- ---------- Order statuses (doc §4) ---------- -->
+<div id="statusSheet" class="overlay" role="dialog" aria-modal="true" aria-labelledby="statusSheetTitle">
+    <div class="sheet glass w-full sm:max-w-lg rounded-t-[20px] sm:rounded-[20px] overflow-hidden shadow-card">
+        <div class="flex items-center justify-between px-5 pt-5 pb-3">
+            <h3 id="statusSheetTitle" class="font-display text-lg font-bold">Order statuses</h3>
+            <button type="button" data-close-sheet aria-label="Close"
+                    class="w-9 h-9 rounded-full glass flex items-center justify-center">
+                <span class="material-symbols-outlined text-[20px]">close</span>
+            </button>
+        </div>
+        <div class="px-5 pb-[calc(20px+var(--safe-b))] sm:pb-5 max-h-[65vh] overflow-y-auto">
+            <ul class="divide-y divide-border">
+                {% for s in order_statuses %}
+                <li class="py-3 flex items-start gap-3">
+                    <span class="status-dot status-{{ s.tone }} mt-1.5 shrink-0" aria-hidden="true"></span>
+                    <div class="min-w-0">
+                        <p class="text-sm font-semibold">{{ s.name }}</p>
+                        <p class="caption-text mt-0.5 leading-relaxed">{{ s.body }}</p>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            <p class="caption-text mt-4 leading-relaxed">
+                The last three are exceptions, not stages — an order reaches one of them
+                instead of completing.
+            </p>
+        </div>
+    </div>
+</div>
+
+<!-- ---------- Escrow (doc §15-17) ---------- -->
+<div id="escrowSheet" class="overlay" role="dialog" aria-modal="true" aria-labelledby="escrowSheetTitle">
+    <div class="sheet glass w-full sm:max-w-lg rounded-t-[20px] sm:rounded-[20px] overflow-hidden shadow-card">
+        <div class="flex items-center justify-between px-5 pt-5 pb-3">
+            <h3 id="escrowSheetTitle" class="font-display text-lg font-bold">How escrow protects you</h3>
+            <button type="button" data-close-sheet aria-label="Close"
+                    class="w-9 h-9 rounded-full glass flex items-center justify-center">
+                <span class="material-symbols-outlined text-[20px]">close</span>
+            </button>
+        </div>
+        <div class="px-5 pb-[calc(20px+var(--safe-b))] sm:pb-5 max-h-[65vh] overflow-y-auto">
+            <p class="caption-text leading-relaxed">
+                When you pay, the money goes to CartFlow — not straight to the business.
+                It is released once you confirm you received your order, which is what makes
+                buying from a shop you have never used before safe.
+            </p>
+            <ul class="mt-4 divide-y divide-border">
+                {% for e in escrow_states %}
+                <li class="py-3 flex items-start gap-3">
+                    <span class="w-9 h-9 rounded-xl bg-card border border-border flex items-center justify-center shrink-0" aria-hidden="true">
+                        <span class="material-symbols-outlined text-[19px] text-primary">{{ e.icon }}</span>
+                    </span>
+                    <div class="min-w-0">
+                        <p class="text-sm font-semibold">{{ e.name }}</p>
+                        <p class="caption-text mt-0.5 leading-relaxed">{{ e.body }}</p>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            <div class="mt-4 rounded-2xl border border-primary/30 bg-primary/10 p-4">
+                <p class="text-sm font-semibold flex items-center gap-2">
+                    <span class="material-symbols-outlined text-[19px] text-primary" aria-hidden="true">timer</span>
+                    Auto-release after 72 hours
+                </p>
+                <p class="caption-text mt-1.5 leading-relaxed">
+                    If a business marks your order delivered and you do not confirm or dispute it,
+                    escrow releases on its own 72 hours later. You are reminded before that point,
+                    and raising a dispute pauses it.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+
+{% block extra_style %}
+
+/* Sheets — the same contract as the profile, shop and hub pages: bottom sheets
+   on phones (thumb-reachable), centred cards from sm+. Re-declared per page
+   rather than shared because each page's sheet set differs; the class names are
+   the shared part. */
+.overlay{ position:fixed; inset:0; z-index:80; background:rgba(3,8,16,.72); display:flex; align-items:flex-end; justify-content:center; opacity:0; pointer-events:none; transition:opacity .25s ease; }
+.overlay.open{ opacity:1; pointer-events:auto; }
+.overlay .sheet{ transform:translateY(26px); transition:transform .3s cubic-bezier(.2,.8,.2,1); }
+.overlay.open .sheet{ transform:translateY(0); }
+@media (min-width:640px){
+    .overlay{ align-items:center; }
+    .overlay .sheet{ transform:translateY(14px) scale(.985); }
+    .overlay.open .sheet{ transform:translateY(0) scale(1); }
+}
+
+/* History tabs. The FILL is the literal palette value (`primary` is a Tailwind
+   config colour, so `var(--c-primary)` does not exist), and the ink on it is the
+   literal dark rather than var(--c-bg): in light mode that var is a near-white,
+   which on a pale-blue tab is ~1.6:1. */
+.ord-tab{ transition:background .2s ease, color .2s ease, border-color .2s ease; }
+.ord-tab-on{ background:#7CC6FF; color:#07111F; }
+.ord-panel[hidden]{ display:none; }
+
+/* The lifecycle rail: one vertical line per step, drawn from the icon down to
+   the next one, so the eight stages read as a single sequence. */
+.flow-line{ flex:1 1 auto; width:2px; min-height:14px; margin-top:4px; background:var(--c-border); border-radius:2px; }
+
+/* Status dots in the statuses sheet. A 9px dot is all the meaning there is, so
+   these use the theme-aware ink tokens — the raw brand hexes vanish on a white
+   panel at this size. */
+.status-dot{ width:9px; height:9px; border-radius:999px; display:inline-block; }
+.status-wait{ background:var(--c-muted); }
+.status-ok{ background:var(--c-ink-primary); }
+.status-done{ background:var(--c-ink-success); }
+.status-bad{ background:var(--c-ink-danger); }
+
+.soon-chip{ display:inline-flex; align-items:center; gap:.25rem; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; padding:.125rem .4rem; border-radius:999px; background:var(--c-glass); border:1px solid var(--c-border); color:var(--c-caption); }
+
+{% endblock %}
+
+
+{% block extra_script %}
+{# base.html renders this block bare, so the <script> tag belongs here. #}
+<script>
+
+/* ===================== ORDERS =====================
+   No network calls: every endpoint in doc 14 §26 is unbuilt, and there is no
+   orders table behind them, so this page has nothing to fetch. All the script
+   does is switch between the four history tabs and open the two reference
+   sheets — both of which have to keep working the day real orders arrive, which
+   is why the tab switcher keys off `data-ord-tab` rather than the panels'
+   contents. */
+
+const ORD_TABS = {{ tabs | map(attribute='key') | list | tojson }};
+
+/* ---- sheets ----
+   One delegated listener at the bottom handles every trigger, so a sheet added
+   later needs no extra JS. */
+function openSheet(id){
+    const el = document.getElementById(id);
+    if (!el) return;
+    document.querySelectorAll('.overlay.open').forEach(o => { if (o !== el) o.classList.remove('open'); });
+    el.classList.add('open');
+    document.body.style.overflow = 'hidden';
+}
+function closeSheets(){
+    document.querySelectorAll('.overlay.open').forEach(o => o.classList.remove('open'));
+    document.body.style.overflow = '';
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheets(); });
+document.querySelectorAll('.overlay').forEach(ov => {
+    /* Scrim click closes; a click inside the sheet must not. */
+    ov.addEventListener('click', (e) => { if (e.target === ov) closeSheets(); });
+});
+
+/* ---- history tabs ----
+   Guarded against a hand-typed hash: only a key that exists is honoured, so
+   /orders#nonsense keeps the default tab instead of hiding every panel. The URL
+   is updated with replaceState rather than a real navigation, so switching tabs
+   does not stack history entries but the tab you are on is still shareable. */
+function showTab(key){
+    if (!ORD_TABS.includes(key)) return;
+    ORD_TABS.forEach(k => {
+        const panel = document.getElementById('ordPanel-' + k);
+        const tab = document.querySelector('[data-ord-tab="' + k + '"]');
+        const on = (k === key);
+        if (panel) panel.hidden = !on;
+        if (tab){
+            tab.setAttribute('aria-selected', on ? 'true' : 'false');
+            tab.classList.toggle('ord-tab-on', on);
+            tab.classList.toggle('font-semibold', on);
+            tab.classList.toggle('border-transparent', on);
+            tab.classList.toggle('glass', !on);
+            tab.classList.toggle('border-border', !on);
+        }
+    });
+    if (location.hash.slice(1) !== key){
+        history.replaceState(null, '', location.pathname + '#' + key);
+    }
+}
+
+/* Deep link: /orders#completed opens that tab directly (the notification copy in
+   doc §23 will link straight to a category). */
+const initialTab = location.hash.slice(1);
+if (ORD_TABS.includes(initialTab)) showTab(initialTab);
+
+/* ---- one delegated click listener, added last ---- */
+document.addEventListener('click', (e) => {
+    const open = e.target.closest('[data-open-sheet]');
+    if (open){ openSheet(open.dataset.openSheet); return; }
+    if (e.target.closest('[data-close-sheet]')){ closeSheets(); return; }
+    const tab = e.target.closest('[data-ord-tab]');
+    if (tab){ showTab(tab.dataset.ordTab); return; }
+});
+
+/* Twemoji pass over anything the server rendered, same as every other page. */
+if (window.cfParseEmoji) window.cfParseEmoji(document.body);
+
+</script>
+{% endblock %}

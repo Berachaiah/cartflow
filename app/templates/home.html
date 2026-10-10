@@ -1,0 +1,1029 @@
+{% extends "base.html" %}
+{% from "partials/avatar.html" import avatar %}
+{% from "partials/ui.html" import money %}
+{% from "partials/brand_icons.html" import share_button %}
+
+{# ==========================================================================
+   HOME FEED — mobile-first, Instagram/TikTok-style.
+
+   Feed content is CURATED PLACEHOLDER data (there is no Post/Story backend yet
+   — see docs/product/06). It is driven from the `feed_posts` list defined right
+   below so the markup is a single loop: when a feed API lands, delete this list
+   and pass `feed_posts` in from the route context — the template doesn't change.
+   Post shape follows doc 06 §16 (Feed Card Layout) and §8-12 (captions with
+   @mentions / #hashtags / product tags).
+
+   PRODUCTS ARE NOT PLACEHOLDER DATA HERE ANY MORE. A post tags a product by
+   SLUG and nothing else; the name, price and photo are looked up in
+   `product_map` (app/services/catalog.py, passed in by the route). Two reasons:
+   a tagged product and its own page can never quote different prices, and every
+   tag is a real link to /product/{slug}. The quick-view modal this page used to
+   open is gone — it repeated the description, the sizes and the price in a
+   dialog too small to hold them, which is exactly the complaint that produced
+   the product page.
+========================================================================== #}
+{% set feed_posts = [
+  {
+    "id": 1, "author": "RetroVibe Apparel", "handle": "retrovibe", "seller": true,
+    "location": "Bells University", "time": "2h", "following": false,
+    "badge": "🔥 Trending",
+    "media": [{"src": "https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?q=80&w=800&auto=format&fit=crop", "alt": "Model wearing the Campus Essential Hoodie in black"}],
+    "caption": "New drop just landed 🔥 Premium campus streetwear without the luxury price tag. Tag a friend who needs this 👀 @campusfits #CampusWear #Streetwear #BellsUniversity",
+    "products": ["campus-essential-hoodie"],
+    "likes": "2,847", "comments": "124",
+    "preview": [{"user": "sarah", "text": "Need this in XL 😍"}, {"user": "james", "text": "Just ordered mine, can't wait 🔥"}]
+  },
+  {
+    "id": 2, "author": "SneakerLab", "handle": "sneakerlab", "seller": true,
+    "location": "Ota, Ogun", "time": "5h", "following": true,
+    "badge": "✨ New Drop",
+    "media": [
+      {"src": "https://images.unsplash.com/photo-1542291026-7eec264c27ff?q=80&w=600&auto=format&fit=crop", "alt": "AirFlux Midnight sneaker, side view"},
+      {"src": "https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?q=80&w=600&auto=format&fit=crop", "alt": "AirFlux White sneaker, top view"},
+      {"src": "https://images.unsplash.com/photo-1600185365483-26d7a4cc7519?q=80&w=600&auto=format&fit=crop", "alt": "AirFlux sneaker on foot"}
+    ],
+    "caption": "AirFlux 2026 is here ✨ Lightweight, breathable, built for the daily grind. Midnight is the one that's listed — swipe for the rest of the range. #NewDrop #AirFlux #Sneakers",
+    "products": ["airflux-midnight"],
+    "likes": "4,102", "comments": "702",
+    "preview": [{"user": "dara", "text": "The white pair is 🔥🔥"}, {"user": "emeka", "text": "Restock the 44 please!"}]
+  },
+  {
+    "id": 3, "author": "CampusTech Store", "handle": "campustech", "seller": true,
+    "location": "Sponsored", "time": "1d", "following": false,
+    "badge": "⚡ Flash Sale · up to 24% off",
+    "media": [{"src": "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?q=80&w=900&auto=format&fit=crop", "alt": "Laptop and accessories on a study desk"}],
+    "caption": "Flash sale is LIVE ⚡ Up to 24% off chargers, earbuds & study gear. Ends tonight — don't sleep on it 😴 #FlashSale #CampusTech #Deals",
+    "products": ["wireless-earbuds-pro", "power-bank-20000"],
+    "likes": "6,800", "comments": "934",
+    "preview": [{"user": "ifeoma", "text": "Grabbed the earbuds, delivery was fast!"}, {"user": "musa", "text": "Does the price include VAT?"}]
+  },
+  {
+    "id": 4, "author": "FoodHub Campus Kitchen", "handle": "foodhub", "seller": true,
+    "location": "Bells University Gate", "time": "30m", "following": false,
+    "badge": "🛵 25-35 min",
+    "media": [{"src": "https://images.unsplash.com/photo-1604329760661-e71dc83f8f26?q=80&w=800&auto=format&fit=crop", "alt": "Plate of jollof rice with chicken and plantain"}],
+    "caption": "Hot & fresh, straight to your hostel 🍽️🔥 Jollof done right. Order before 8pm for free delivery 🛵 #CampusEats #Jollof #FoodHub",
+    "products": ["jollof-rice-combo"],
+    "likes": "1,204", "comments": "318",
+    "preview": [{"user": "blessing", "text": "Best jollof on campus, no cap"}, {"user": "chuka", "text": "Arrived in 20 mins, fast!"}]
+  },
+  {
+    "id": 5, "author": "Bells Student Union", "handle": "bellssu", "seller": true,
+    "location": "Event", "time": "2d", "following": false,
+    "badge": "🎟️ Campus Event",
+    "media": [{"src": "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?q=80&w=900&auto=format&fit=crop", "alt": "Crowd at an outdoor campus event"}],
+    "caption": "It's giving big vibes 🎉 Over 40 campus brands, live music & flash deals in one afternoon. Free entry with your student ID 🎟️ #FreshersBazaar #CartFlowEvents",
+    "event": {"title": "CartFlow Fresher's Bazaar", "date": "Sat, Jul 25 · 2PM", "venue": "Bells University Square"},
+    "likes": "918", "comments": "146",
+    "preview": [{"user": "tomi", "text": "Locked in 🙌"}, {"user": "zainab", "text": "Is there an afterparty?"}]
+  }
+] %}
+
+{# ---- Instagram-style top bar: CartFlow wordmark (no logo mark) left,
+   Activity + Messages right. Overrides base.html's default titled bar. ---- #}
+{% block topbar %}
+<header class="sticky top-0 z-40 h-14 sm:h-16 border-b border-border blur-bg">
+    <div class="h-full px-4 sm:px-6 flex items-center justify-between gap-3">
+        {# Centred within the space the icon row leaves (see base.html's default
+           top bar for why the viewport centre is unreachable on a phone). Reset
+           to flush-left at lg+, where the sidebar carries the brand and a
+           floating centred wordmark would read as a second, competing header. #}
+        <div class="flex-1 min-w-0 flex justify-center lg:flex-none lg:justify-start">
+            <a href="/" class="font-display text-2xl sm:text-3xl font-black tracking-tight" aria-label="CartFlow — home">CartFlow</a>
+        </div>
+        <div class="flex items-center gap-1 sm:gap-2">
+            {# Both were toast buttons until /notifications and /messages existed.
+               Links now — and signed out they point at /login with a `next`, so a
+               tap ends somewhere useful instead of bouncing through a redirect. #}
+            <a href="{{ '/notifications' if current_user else '/login?next=/notifications' }}" aria-label="Activity"
+               class="w-10 h-10 rounded-xl flex items-center justify-center hover-card">
+                <span class="material-symbols-outlined text-[24px]">favorite</span>
+            </a>
+            <a href="{{ '/messages' if current_user else '/login?next=/messages' }}" aria-label="Messages"
+               class="w-10 h-10 rounded-xl flex items-center justify-center hover-card">
+                <span class="material-symbols-outlined text-[24px]">send</span>
+            </a>
+            {# The theme toggle used to sit here. A feed top bar is the tightest row
+               in the app — activity, messages and your avatar are what belong in
+               one; the theme preference lives in Settings → Appearance now. #}
+            {# Same as base.html's default top bar: your own avatar doubles as
+               the "signed in as" indicator and as a one-tap path to your
+               profile (which mobile also reaches from the Profile tab). #}
+            {% if current_user %}
+            <a href="/@{{ current_user.username }}" aria-label="Your profile" class="shrink-0 ml-1">
+                {{ avatar(current_user.display_name, current_user.username, "w-9 h-9", "rounded-xl", "", "text-sm", src=avatar_src(current_user, "sm")) }}
+            </a>
+            {% endif %}
+        </div>
+    </div>
+</header>
+{% endblock %}
+
+{% block content %}
+<div id="flowProgress"></div>
+
+<!-- Narrow, centered feed column on mobile→lg (native app feel); a secondary
+     suggestions rail appears only on xl+ as a desktop convenience. -->
+<div class="page xl:max-w-none xl:flex xl:justify-center xl:gap-8">
+
+    <!-- ===================== FEED COLUMN =====================
+         Mobile→lg: a single centered column (max-w-[600px] on the parent).
+         xl+: a centered flex row — feed fixed at 600px, suggestions rail 340px —
+         so posts stay a readable social-card width instead of stretching across
+         a large monitor. -->
+    <div class="w-full xl:w-[600px] xl:shrink-0 space-y-5 sm:space-y-6">
+
+        <!-- Feed filter sub-bar (sticky under the top bar). No category chips —
+             categories live in Shop (doc 04 §9), not Home. -->
+        <div class="sticky top-14 sm:top-16 z-30 -mx-3 sm:-mx-6 xl:mx-0 px-3 sm:px-6 xl:px-0 py-2.5 blur-bg border-b border-border">
+            <div class="flex items-center gap-2 overflow-x-auto hide-scrollbar" role="tablist" aria-label="Feed filters">
+                <button class="feed-active px-4 py-1.5 rounded-full text-sm whitespace-nowrap" role="tab" aria-selected="true">For You</button>
+                <button class="feed-tab glass px-4 py-1.5 rounded-full text-sm whitespace-nowrap" role="tab" aria-selected="false">Following</button>
+                <button class="feed-tab glass px-4 py-1.5 rounded-full text-sm whitespace-nowrap" role="tab" aria-selected="false">Trending</button>
+                <button class="feed-tab glass px-4 py-1.5 rounded-full text-sm whitespace-nowrap" role="tab" aria-selected="false">New Drops</button>
+                <button class="feed-tab glass px-4 py-1.5 rounded-full text-sm whitespace-nowrap" role="tab" aria-selected="false">Nearby</button>
+            </div>
+        </div>
+
+        <!-- ===================== STORIES RAIL =====================
+             Tiles are 76px, not 72px, and the labels wrap to two lines instead of
+             truncating: at 72px with `truncate`, "SneakerLab" lost its tail and
+             read "Sneaker …". A name is the one string in a card you cannot
+             abbreviate for someone — that is their shop. -->
+        <div class="flex gap-4 overflow-x-auto hide-scrollbar pb-1" id="storyRow">
+            <div class="flex flex-col items-center flex-shrink-0 w-[76px]">
+                <button type="button" onclick="showToast('Story composer — coming soon')" aria-label="Add to your story"
+                        class="w-16 h-16 sm:w-[68px] sm:h-[68px] rounded-full bg-card border border-dashed border-primary flex items-center justify-center hover-card relative">
+                    {% if current_user %}
+                        {{ avatar(current_user.display_name, current_user.username, "w-full h-full", "rounded-full", src=avatar_src(current_user, "sm")) }}
+                    {% else %}
+                        <span class="material-symbols-outlined text-3xl">add</span>
+                    {% endif %}
+                    <span class="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-primary text-background flex items-center justify-center border-2 border-background"><span class="material-symbols-outlined text-[14px]">add</span></span>
+                </button>
+                <span class="text-[11px] mt-1.5 w-full text-center leading-tight break-words line-clamp-2">Your Story</span>
+            </div>
+            <!-- brand stories injected by JS -->
+        </div>
+
+        <!-- ===================== POSTS ===================== -->
+        <div class="space-y-5 sm:space-y-6" id="feedColumn">
+            {% for post in feed_posts %}
+            {# data-share-slug is the post's first tagged product, or empty. The
+               Share sheet's "Send in a message" needs a slug — a post itself is
+               not something messaging can carry, but the product it tags is. #}
+            <article class="glass panel overflow-hidden" data-post="{{ post.id }}" data-author="{{ post.author }}"
+                     data-share-slug="{{ post.products[0] if post.products else '' }}">
+
+                <!-- author row -->
+                <header class="p-3.5 sm:p-4 flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-3 min-w-0">
+                        {{ avatar(post.author, post.handle, "w-11 h-11", "rounded-full") }}
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-1">
+                                {# NOT truncated. A shop's name is the one string in this
+                                   row that belongs to somebody, and `truncate` turned
+                                   "SneakerLab" into "Sneaker …". It wraps to a second
+                                   line instead; the row growing 14px is a far smaller
+                                   cost than a name nobody can read. The meta line below
+                                   still truncates, because "@handle · 2h · Bells
+                                   University" is genuinely abbreviatable. #}
+                                <h3 class="text-sm font-semibold leading-tight break-words min-w-0">{{ post.author }}</h3>
+                                {% if post.seller %}<span class="material-symbols-outlined text-primary text-[16px] shrink-0" title="Business" aria-label="Business">verified</span>{% endif %}
+                            </div>
+                            <p class="text-xs text-muted truncate mt-0.5">@{{ post.handle }} · {{ post.time }} · {{ post.location }}</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-1.5 shrink-0">
+                        {% if post.following %}
+                        <button class="follow-btn px-4 py-1.5 rounded-full glass border border-border text-sm" onclick="toggleFollow(this)">Following</button>
+                        {% else %}
+                        <button class="follow-btn px-4 py-1.5 rounded-full bg-primary text-background font-semibold text-sm" onclick="toggleFollow(this)">Follow</button>
+                        {% endif %}
+                        <button type="button" aria-label="Post options" onclick="openPostMenu(this)" class="w-9 h-9 rounded-full flex items-center justify-center hover-card"><span class="material-symbols-outlined">more_horiz</span></button>
+                    </div>
+                </header>
+
+                {# ===== media =====
+                   Several photos are a CAROUSEL, one at a time, not a 3-up grid.
+                   The grid showed every photo at once shrunk to a square and
+                   silently dropped anything past the third, so a five-photo post
+                   became three thumbnails — no swipe, and two photos you could
+                   never see.
+
+                   The gesture is native: a scroll container with scroll-snap.
+                   That buys momentum, rubber-banding, trackpad and mouse-wheel
+                   support and keyboard scrolling for free, and it degrades to a
+                   plain horizontal scroller if the JS below never runs. JS only
+                   READS scrollLeft to move the counter and the dots.
+
+                   Being a scroll container its min-content width is 0, so it
+                   cannot push the page wider — the bug that had Shop's top-bar
+                   icons off-screen. One photo uses the same wrapper so the
+                   double-tap handler has one shape to attach to. #}
+                {% set shots = post.media %}
+                <div class="post-media relative" data-shots="{{ shots | length }}">
+                    <div class="post-track flex overflow-x-auto snap-x snap-mandatory hide-scrollbar"
+                         {% if shots | length > 1 %}role="group" aria-roledescription="carousel" aria-label="{{ shots | length }} photos, swipe to see the rest"
+                         {# tabindex makes the scroll container arrow-key scrollable in
+                            Chrome, which is the only way to reach photos 2..n without a
+                            pointer. Only multi-photo posts take the extra tab stop. #}
+                         tabindex="0"{% endif %}>
+                        {% for m in shots %}
+                        <div class="snap-center shrink-0 w-full zoom-wrap"
+                             {% if shots | length > 1 %}role="group" aria-roledescription="slide" aria-label="Photo {{ loop.index }} of {{ shots | length }}"{% endif %}>
+                            <img src="{{ m.src }}" alt="{{ m.alt }}" loading="lazy"
+                                 class="w-full aspect-[4/5] object-cover">
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                    {# The heart the double-tap throws. Outside the track so a swipe
+                       doesn't carry it away, and pointer-events:none so it can never
+                       swallow the next tap. #}
+                    <span class="tap-heart material-symbols-outlined" aria-hidden="true">favorite</span>
+
+                    {% if post.badge %}<span class="on-media absolute top-4 left-4 bg-black/45 backdrop-blur-md text-sm font-semibold px-3.5 py-1.5 rounded-full">{{ post.badge }}</span>{% endif %}
+
+                    {% if shots | length > 1 %}
+                    {# n/N, top-right, the one place a count belongs: it says how
+                       much is left before you have swiped, which dots alone don't.
+                       aria-hidden because the slides announce themselves. #}
+                    <span class="post-counter on-media absolute top-4 right-4 bg-black/55 backdrop-blur-md text-[12px] font-bold px-2.5 py-1 rounded-full tabular-nums" aria-hidden="true">1/{{ shots | length }}</span>
+                    <div class="post-dots absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5" aria-hidden="true">
+                        {% for m in shots %}<span class="post-dot{{ ' is-on' if loop.first else '' }}"></span>{% endfor %}
+                    </div>
+                    {% endif %}
+
+                    {% if post.products %}
+                    {% set tagged = product_map[post.products[0]] %}
+                    <a href="/product/{{ tagged.slug }}"
+                       aria-label="View tagged product {{ tagged.name }}"
+                       class="on-media absolute bottom-4 left-4 flex items-center gap-2 bg-black/45 backdrop-blur-md px-3.5 py-2 rounded-full text-sm hover-card">
+                        <span class="material-symbols-outlined text-[18px]" aria-hidden="true">local_mall</span>{{ post.products | length }} product{{ 's' if post.products | length > 1 else '' }}
+                    </a>
+                    {% endif %}
+                </div>
+
+                <!-- action row (doc 06 §16) -->
+                <div class="flex items-center justify-between px-3.5 sm:px-4 pt-3">
+                    <div class="flex items-center gap-1">
+                        <button class="like-action flex items-center justify-center w-10 h-10 rounded-full hover-card" aria-label="Like" aria-pressed="false" onclick="toggleLike(this)"><span class="material-symbols-outlined">favorite</span></button>
+                        <button class="flex items-center justify-center w-10 h-10 rounded-full hover-card" aria-label="Comments" onclick="toggleComments(this)"><span class="material-symbols-outlined">chat_bubble</span></button>
+                        <button class="flex items-center justify-center w-10 h-10 rounded-full hover-card" aria-label="Repost" onclick="repost(this)"><span class="material-symbols-outlined">repeat</span></button>
+                        {# Both arguments read off the article rather than
+                           interpolated into the handler: an author name with an
+                           apostrophe in it would have closed the JS string. #}
+                        <button class="flex items-center justify-center w-10 h-10 rounded-full hover-card" aria-label="Share" onclick="openShare(this.closest('article').dataset.author, this.closest('article').dataset.shareSlug)"><span class="material-symbols-outlined">share</span></button>
+                    </div>
+                    <button class="save-action flex items-center justify-center w-10 h-10 rounded-full hover-card" aria-label="Save" onclick="toggleSave(this)"><span class="material-symbols-outlined">bookmark</span></button>
+                </div>
+
+                <!-- like count -->
+                <p class="px-3.5 sm:px-4 pt-1 text-sm font-semibold"><span class="like-count">{{ post.likes }}</span> likes</p>
+
+                <!-- caption with inline @mentions / #hashtags -->
+                <p class="px-3.5 sm:px-4 pt-1.5 leading-relaxed">
+                    <a href="/discover?q=%40{{ post.handle }}" class="font-semibold hover:underline">{{ post.author }}</a>
+                    <span class="caption-text">{{ post.caption | caption_html }}</span>
+                </p>
+
+                <!-- tagged products (doc 06 §10) — real links, not previews:
+                     the facts come from the catalogue and the full page is one
+                     tap away, so nothing here has to repeat a description. -->
+                {% if post.products %}
+                <div class="px-3.5 sm:px-4 pt-3 flex gap-2.5 overflow-x-auto hide-scrollbar">
+                    {% for slug in post.products %}
+                    {% set p = product_map[slug] %}
+                    <a href="/product/{{ p.slug }}"
+                       class="group flex items-center gap-3 bg-card border border-border rounded-2xl p-2 pr-3.5 shrink-0 hover-card"
+                       aria-label="View {{ p.name }}, {{ money(p.price) }}">
+                        <img src="{{ p.image }}" alt="" loading="lazy" class="w-12 h-12 rounded-xl object-cover shrink-0">
+                        <span class="min-w-0">
+                            <span class="block text-[13px] font-semibold whitespace-nowrap group-hover:text-primary transition-colors">{{ p.name }}</span>
+                            <span class="flex items-center gap-1.5 whitespace-nowrap">
+                                <span class="text-[13px] text-primary font-bold">{{ money(p.price) }}</span>
+                                {% if p.was %}<span class="text-[11px] text-muted line-through">{{ money(p.was) }}</span>{% endif %}
+                            </span>
+                        </span>
+                        <span class="material-symbols-outlined text-muted text-[20px]" aria-hidden="true">chevron_right</span>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                <!-- tagged event (doc 06 §11) -->
+                {% if post.event %}
+                <div class="px-3.5 sm:px-4 pt-3">
+                    <div class="bg-card border border-border rounded-2xl p-4">
+                        <div class="flex items-center gap-3">
+                            <span class="w-11 h-11 rounded-xl bg-accent/20 text-accent flex items-center justify-center shrink-0"><span class="material-symbols-outlined">calendar_month</span></span>
+                            <div class="min-w-0">
+                                <p class="font-semibold truncate">{{ post.event.title }}</p>
+                                <p class="text-xs text-muted truncate">{{ post.event.date }} · {{ post.event.venue }}</p>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2.5 mt-3">
+                            <button class="bg-primary text-background font-bold rounded-xl py-2.5 text-sm btn-glow" onclick="rsvpEvent(this)">RSVP — I'm Going</button>
+                            <button class="glass rounded-xl py-2.5 text-sm hover-card" onclick="showToast('Ticketing — coming soon')">Get Tickets</button>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- comments -->
+                <div class="px-3.5 sm:px-4 pt-3 pb-4 comments-block">
+                    <button class="text-sm text-muted hover:text-primary transition" onclick="toggleComments(this)">View all {{ post.comments }} comments</button>
+                    <div class="comments-list space-y-1.5 mt-2 hidden">
+                        {% for c in post.preview %}
+                        <p class="text-sm"><a href="/discover?q=%40{{ c.user }}" class="font-semibold hover:underline">{{ c.user }}</a> <span class="caption-text">{{ c.text }}</span></p>
+                        {% endfor %}
+                    </div>
+                    <div class="flex items-center gap-3 mt-3">
+                        {% if current_user %}
+                            {{ avatar(current_user.display_name, current_user.username, "w-8 h-8", "rounded-full", src=avatar_src(current_user, "sm")) }}
+                        {% else %}
+                            <span class="w-8 h-8 rounded-full bg-card flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-muted text-[18px]">person</span></span>
+                        {% endif %}
+                        <input type="text" aria-label="Add a comment" placeholder="Add a comment…" class="flex-1 bg-card border border-border rounded-full px-4 py-2 text-sm outline-none focus:border-primary"
+                               onkeydown="if(event.key==='Enter'&&this.value.trim()){addComment(this)}">
+                    </div>
+                </div>
+            </article>
+
+            {# One suggestions insert after the 2nd post — native "suggested for you" pattern #}
+            {% if loop.index == 2 %}
+            <div class="glass panel p-4 sm:p-5">
+                <div class="flex items-center justify-between gap-3 mb-4">
+                    <h3 class="font-display text-[15px] font-bold leading-tight">Suggested for you</h3>
+                    <span class="text-xs text-muted">Sponsored</span>
+                </div>
+                <div class="flex gap-3 overflow-x-auto hide-scrollbar">
+                    {% for s in [{"name":"CampusTech","handle":"campustech"},{"name":"FoodHub","handle":"foodhub"},{"name":"Luxe Fashion","handle":"luxe"},{"name":"UrbanEdge","handle":"urbanedge"}] %}
+                    <div class="flex-shrink-0 w-36 glass rounded-2xl p-4 text-center hover-card">
+                        {{ avatar(s.name, s.handle, "w-14 h-14 mx-auto", "rounded-full") }}
+                        <h4 class="font-semibold text-sm mt-3 leading-tight break-words line-clamp-2">{{ s.name }}</h4>
+                        <p class="text-xs text-muted truncate">@{{ s.handle }}</p>
+                        <button class="follow-btn mt-3 w-full bg-primary text-background text-xs font-bold rounded-full py-2" onclick="toggleFollow(this)">Follow</button>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+
+            <p class="text-center text-sm text-muted py-6">You're all caught up ✨</p>
+        </div>
+    </div>
+
+    <!-- ===================== RIGHT SIDEBAR (xl+ only) ===================== -->
+    <aside class="hidden xl:block xl:w-[340px] xl:shrink-0 space-y-6">
+
+        <!-- signed-in identity card -->
+        <div class="glass panel p-5 flex items-center gap-4">
+            {% if current_user %}
+                {{ avatar(current_user.display_name, current_user.username, "w-14 h-14", "rounded-full", src=avatar_src(current_user, "sm")) }}
+                <div class="min-w-0 flex-1">
+                    <h4 class="text-sm font-semibold leading-tight flex items-start gap-1"><span class="break-words min-w-0">{{ current_user.display_name }}</span>{% if current_user.is_seller %}<span class="material-symbols-outlined text-primary text-[16px] shrink-0" title="Business" aria-label="Business">verified</span>{% endif %}</h4>
+                    <p class="text-[12.5px] text-muted truncate">@{{ current_user.username }}</p>
+                </div>
+                {# Start selling is REAL (POST /api/auth/business/upgrade), so this
+                   links to the form instead of toasting "coming soon" as it used
+                   to. /dashboard is the Hub's front door: for a non-seller it
+                   renders exactly that form, and it re-checks ownership on the
+                   organizations row itself, so the is_seller flag here is only
+                   deciding whether to show a link. #}
+                {% if not current_user.is_seller %}<a href="/dashboard" class="text-sm text-primary font-semibold shrink-0">Start selling</a>{% endif %}
+            {% else %}
+                <span class="w-14 h-14 rounded-full bg-card flex items-center justify-center"><span class="material-symbols-outlined text-muted">person</span></span>
+                <div class="flex-1"><h4 class="text-sm font-semibold">Welcome to CartFlow</h4><p class="text-[12.5px] text-muted">Log in to personalize your feed</p></div>
+                <a href="/login" class="text-sm text-primary font-semibold shrink-0">Log in</a>
+            {% endif %}
+        </div>
+
+        <!-- trending searches -->
+        <div class="glass panel p-5">
+            <h3 class="font-display text-[15px] font-bold leading-tight mb-4">🔎 Trending Searches</h3>
+            <div class="flex flex-wrap gap-2">
+                {% for term in ["Hoodies","AirFlux sneakers","iPhone 16","Jollof rice","Study lamps"] %}
+                <button class="glass px-4 py-2 rounded-full text-sm hover-card" onclick="searchFor('{{ term }}')">{{ term }}</button>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- trending brands -->
+        <div class="glass panel p-5">
+            <div class="flex items-center justify-between gap-3 mb-4">
+                <h3 class="font-display text-[15px] font-bold leading-tight">🔥 Trending Brands</h3>
+                <a href="/discover" class="text-primary text-sm">See all</a>
+            </div>
+            <div class="space-y-4">
+                {% for b in [{"name":"RetroVibe","handle":"retrovibe","followers":"48.2K","following":false},{"name":"SneakerLab","handle":"sneakerlab","followers":"32.7K","following":true},{"name":"Luxe Fashion","handle":"luxe","followers":"18.4K","following":false}] %}
+                <div class="flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-3 min-w-0">
+                        {{ avatar(b.name, b.handle, "w-11 h-11", "rounded-full") }}
+                        <div class="min-w-0"><h4 class="text-sm font-semibold leading-tight break-words">{{ b.name }}</h4><p class="text-[12.5px] text-muted truncate mt-0.5">{{ b.followers }} followers</p></div>
+                    </div>
+                    {% if b.following %}
+                    <button class="follow-btn glass px-4 py-1.5 rounded-full text-sm border border-border shrink-0" onclick="toggleFollow(this)">Following</button>
+                    {% else %}
+                    <button class="follow-btn bg-primary text-background px-4 py-1.5 rounded-full text-sm font-semibold shrink-0" onclick="toggleFollow(this)">Follow</button>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- recently viewed — filled from the products you actually opened
+             (cartflow-cart.js remembers the slugs; the product page writes them) -->
+        <div class="glass panel p-5">
+            <h3 class="font-display text-[15px] font-bold leading-tight mb-4">🕓 Recently Viewed</h3>
+            <div class="flex gap-3 overflow-x-auto hide-scrollbar" id="recentlyViewedRow">
+                <p class="text-sm text-muted" id="recentlyViewedEmpty">Nothing viewed yet — open a product to see it here.</p>
+            </div>
+        </div>
+
+        <!-- flash deal — a real catalogue product with its real discount, so the
+             price here and the price on its page are the same number -->
+        {% set deal = product_map['everyday-wristwatch'] %}
+        <div class="glass panel p-5">
+            <div class="flex items-center justify-between gap-3 mb-4">
+                <h3 class="font-display text-[15px] font-bold leading-tight">⚡ Flash Deals</h3>
+                <span class="text-danger text-sm font-mono" id="flashCountdown">02:17:43</span>
+            </div>
+            <a href="/product/{{ deal.slug }}" class="group block bg-card rounded-2xl p-4 hover-card">
+                <img src="{{ deal.image }}" alt="{{ deal.alt }}" loading="lazy" class="rounded-xl w-full h-40 object-cover mb-3">
+                <h4 class="text-sm font-semibold group-hover:text-primary transition-colors">{{ deal.name }}</h4>
+                <div class="flex justify-between items-center mt-2">
+                    <span class="text-primary font-bold text-lg">{{ money(deal.price) }}</span>
+                    <span class="line-through text-muted text-sm">{{ money(deal.was) }}</span>
+                </div>
+            </a>
+        </div>
+
+        <!-- campus activity -->
+        <div class="glass panel p-5">
+            <h3 class="font-display text-[15px] font-bold leading-tight mb-4">🎓 Campus Activity</h3>
+            <div class="space-y-2 text-sm">
+                <p class="caption-text"><span class="font-semibold text-primary">213</span> students shopping right now at Bells University</p>
+                <p class="caption-text"><span class="font-semibold text-primary">18</span> new brands joined this week</p>
+                <p class="caption-text"><span class="font-semibold text-primary">₦4.2M</span> in campus sales today</p>
+            </div>
+        </div>
+
+        <p class="text-xs text-muted px-2">© CartFlow · Social commerce for campus</p>
+    </aside>
+</div>
+{% endblock %}
+
+{% block extra_style %}
+
+/* ===== feed styles ===== */
+.story-ring{ background:linear-gradient(135deg,#FFB547,#7CC6FF); padding:2px; border-radius:999px; cursor:pointer; transition:.25s; }
+.story-ring:hover{ transform:scale(1.05); }
+.story-ring.story-live{ animation:ringPulse 2.2s ease-in-out infinite; }
+@keyframes ringPulse{ 0%,100%{ box-shadow:0 0 0 0 rgba(124,198,255,.45); } 50%{ box-shadow:0 0 0 6px rgba(124,198,255,0); } }
+
+.feed-tab{ transition:.25s; }
+.feed-tab:hover{ color:var(--c-text); }
+.feed-active{ background:#7CC6FF; color:#07111F; font-weight:700; }
+
+.zoom-wrap{ overflow:hidden; }
+.zoom-wrap img{ transition:transform .6s cubic-bezier(.2,.8,.2,1); }
+.zoom-wrap:hover img{ transform:scale(1.04); }
+
+/* ---- multi-photo posts ----
+   The hover zoom is disabled inside a carousel: a 1.04 scale on an image that
+   is exactly one slide wide bleeds into the neighbouring slide, and on a phone
+   "hover" is whatever you last touched, so the photo you just swiped away from
+   stays zoomed. */
+.post-media:not([data-shots="1"]) .zoom-wrap:hover img{ transform:none; }
+
+/* overscroll-behavior-x:contain stops a swipe past the last photo from turning
+   into the browser's back-navigation gesture — on iOS that would leave the feed
+   entirely mid-swipe. touch-action allows the horizontal pan and still lets a
+   vertical drag scroll the feed underneath. */
+.post-track{ overscroll-behavior-x:contain; touch-action:pan-x pan-y; scroll-behavior:smooth; }
+/* pan-x pan-y and manipulation both exclude double-tap-zoom, which is what stops
+   iOS Safari from zooming the page instead of liking the post. */
+.post-media{ touch-action:manipulation; }
+.post-track:focus-visible{ outline:2px solid var(--c-ink-primary); outline-offset:-2px; }
+
+.post-dot{
+    width:6px; height:6px; border-radius:999px;
+    /* On media, so a fixed white — these sit on the photo, not on the card, and
+       must read the same in both themes. */
+    background:rgba(255,255,255,.5);
+    transition:background .25s ease, width .25s ease;
+}
+.post-dot.is-on{ background:#fff; width:16px; }
+
+/* The double-tap heart. Fixed white with a shadow rather than a theme token: it
+   is drawn on top of a photograph that could be any colour. */
+.tap-heart{
+    position:absolute; top:50%; left:50%;
+    transform:translate(-50%,-50%) scale(.2);
+    font-size:104px; line-height:1;
+    color:#fff; opacity:0;
+    font-variation-settings:'FILL' 1;
+    filter:drop-shadow(0 4px 18px rgba(0,0,0,.45));
+    pointer-events:none;                 /* never swallow the next tap */
+    z-index:2;
+}
+.tap-heart.burst{ animation:tapHeart .85s cubic-bezier(.2,.8,.2,1) forwards; }
+@keyframes tapHeart{
+      0%{ opacity:0; transform:translate(-50%,-50%) scale(.2); }
+     18%{ opacity:1; transform:translate(-50%,-50%) scale(1.15); }
+     34%{ opacity:1; transform:translate(-50%,-50%) scale(.95); }
+     70%{ opacity:1; transform:translate(-50%,-50%) scale(1); }
+    100%{ opacity:0; transform:translate(-50%,-50%) scale(1.05); }
+}
+
+/* Motion is decoration here — the like still registers, it just doesn't fly. */
+@media (prefers-reduced-motion: reduce){
+    .tap-heart.burst{ animation-duration:.01ms; }
+    .post-track{ scroll-behavior:auto; }
+}
+
+/* Both are ink on the card, so they take the theme-aware tokens rather than the
+   raw brand hexes — a #7CC6FF bookmark on a white card is 1.8:1, i.e. a filled
+   icon you can't tell from an empty one. */
+.liked{ color:var(--c-ink-danger); }
+.saved{ color:var(--c-ink-primary); }
+.like-anim{ animation:pulseHeart .5s ease; }
+.save-anim{ animation:spinSave .5s ease; }
+@keyframes pulseHeart{ 0%{transform:scale(1)} 35%{transform:scale(1.4)} 60%{transform:scale(.92)} 100%{transform:scale(1)} }
+@keyframes spinSave{ 0%{transform:rotate(0deg) scale(1)} 50%{transform:rotate(180deg) scale(1.25)} 100%{transform:rotate(360deg) scale(1)} }
+
+@keyframes floatUp{ 0%{ opacity:0; transform:translateY(14px); } 100%{ opacity:1; transform:translateY(0); } }
+.animate-floatUp{ animation:floatUp .5s ease both; }
+
+.overlay{ position:fixed; inset:0; z-index:80; background:rgba(3,8,16,.72); display:flex; align-items:center; justify-content:center; opacity:0; pointer-events:none; transition:opacity .25s ease; }
+.overlay.open{ opacity:1; pointer-events:auto; }
+.overlay .sheet{ transform:translateY(16px) scale(.98); transition:transform .3s cubic-bezier(.2,.8,.2,1); }
+.overlay.open .sheet{ transform:translateY(0) scale(1); }
+
+#flowProgress{ position:fixed; top:0; left:0; height:3px; width:0%; z-index:70; background:linear-gradient(90deg,#FFB547,#7CC6FF); transition:width .1s linear; }
+
+{% endblock %}
+
+{% block modals %}
+<!-- ===================== STORY VIEWER ===================== -->
+<div id="storyOverlay" class="overlay">
+    <div class="sheet w-full h-full sm:h-[92vh] sm:w-[420px] sm:rounded-[20px] overflow-hidden relative bg-black">
+        <img id="storyImage" class="w-full h-full object-cover" src="" alt="">
+        <div class="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/70"></div>
+        <div class="absolute top-4 left-4 right-4 flex gap-1.5" id="storyProgressRow"></div>
+        <div class="absolute top-8 left-4 right-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <img id="storyAvatar" class="w-10 h-10 rounded-full object-cover border border-white/40" src="" alt="">
+                <div>
+                    <p id="storyName" class="on-media font-semibold text-sm"></p>
+                    {# on-media rather than text-white/70: the sibling above uses it,
+                       and it carries the text-shadow that keeps a caption legible
+                       over a bright photo. Opacity gives the same recessed look
+                       without opting out of the shadow. #}
+                    <p class="on-media text-xs opacity-70">Just now</p>
+                </div>
+            </div>
+            <button onclick="closeStory()" class="on-media" aria-label="Close story"><span class="material-symbols-outlined">close</span></button>
+        </div>
+        <button onclick="prevStory()" class="absolute left-0 top-0 h-full w-1/3" aria-label="Previous story"></button>
+        <button onclick="nextStory()" class="absolute right-0 top-0 h-full w-1/3" aria-label="Next story"></button>
+        <div class="absolute bottom-6 left-4 right-4 flex items-center gap-3">
+            <input type="text" placeholder="Reply…" aria-label="Reply to story" class="flex-1 bg-white/10 backdrop-blur-md border border-white/20 rounded-full px-5 py-3 on-media text-sm outline-none placeholder-white/60">
+            <button onclick="pulseStoryLike(this)" class="on-media" aria-label="Like story"><span class="material-symbols-outlined text-3xl">favorite</span></button>
+        </div>
+    </div>
+</div>
+
+<!-- ===================== SHARE ===================== -->
+<div id="shareOverlay" class="overlay">
+    <div class="sheet glass panel w-full max-w-sm mx-4 shadow-card">
+        <div class="flex items-center justify-between p-5 border-b border-border">
+            <h3 class="font-display text-lg font-bold">Share <span id="shareItemName" class="text-primary"></span></h3>
+            <button onclick="closeShare()" aria-label="Close share"><span class="material-symbols-outlined">close</span></button>
+        </div>
+        <div class="p-6 grid grid-cols-3 gap-4 text-center text-sm">
+            {# CartFlow's own two actions keep CartFlow's own treatment — glass and
+               the brand accent. The four in between are other people's services,
+               so they wear other people's marks and colours. #}
+            <button type="button" class="flex flex-col items-center gap-2 hover-card" onclick="copyShareLink()">
+                <span class="w-11 h-11 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl glass flex items-center justify-center shrink-0"><span class="material-symbols-outlined">link</span></span>
+                <span class="text-[12.5px] leading-tight">Copy Link</span>
+            </button>
+            {{ share_button("whatsapp",  "WhatsApp",  "background:#25D366", "cfShareTo('whatsapp')") }}
+            {{ share_button("instagram", "Instagram", "background:linear-gradient(45deg,#FEDA75 0%,#FA7E1E 25%,#D62976 55%,#962FBF 80%,#4F5BD5 100%)", "cfShareTo('instagram')") }}
+            {# X's mark is a black mark on black. It needs a border or it disappears
+               into the dark theme's card entirely. #}
+            {{ share_button("x", "X", "background:#000;border:1px solid rgba(255,255,255,.18)", "cfShareTo('x')") }}
+            {{ share_button("facebook", "Facebook", "background:#0866FF", "cfShareTo('facebook')") }}
+            <button type="button" class="flex flex-col items-center gap-2 hover-card" onclick="cfShareTo('dm')">
+                <span class="w-11 h-11 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-primary/20 text-primary flex items-center justify-center shrink-0"><span class="material-symbols-outlined">send</span></span>
+                <span class="text-[12.5px] leading-tight">Message</span>
+            </button>
+        </div>
+        <div class="p-6 pt-0">
+            <div class="glass rounded-2xl p-5 flex items-center gap-4">
+                <span class="w-16 h-16 rounded-xl bg-white text-black flex items-center justify-center flex-shrink-0"><span class="material-symbols-outlined" style="font-size:52px">qr_code_2</span></span>
+                <div>
+                    <p class="text-sm font-semibold">Scan to view</p>
+                    <p class="text-xs text-muted">QR links straight to this item</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ===================== POST OPTIONS ===================== -->
+<div id="postMenuOverlay" class="overlay">
+    <div class="sheet glass panel w-full max-w-sm mx-4 shadow-card p-2">
+        <button class="w-full text-left px-4 py-3 rounded-2xl hover-card flex items-center gap-3" onclick="postMenuAction('copy')"><span class="material-symbols-outlined">link</span>Copy link</button>
+        <button class="w-full text-left px-4 py-3 rounded-2xl hover-card flex items-center gap-3" onclick="postMenuAction('share')"><span class="material-symbols-outlined">share</span>Share to…</button>
+        <button class="w-full text-left px-4 py-3 rounded-2xl hover-card flex items-center gap-3" onclick="postMenuAction('save')"><span class="material-symbols-outlined">bookmark</span>Save</button>
+        <button class="w-full text-left px-4 py-3 rounded-2xl hover-card flex items-center gap-3" onclick="postMenuAction('hide')"><span class="material-symbols-outlined">visibility_off</span>Hide</button>
+        <button class="w-full text-left px-4 py-3 rounded-2xl hover-card flex items-center gap-3 text-danger" onclick="postMenuAction('report')"><span class="material-symbols-outlined">flag</span>Report</button>
+        <button class="w-full text-center px-4 py-3 rounded-2xl hover-card mt-1 text-muted" onclick="closePostMenu()">Cancel</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+{# The cart/saved/recently-viewed store (CartFlowStore) is loaded by base.html
+   for every page, and this block renders after it — so it is already defined by
+   the time the code below runs. This page needs it because the feed's product
+   tags lead to /product/{slug}, which records what you viewed, and the Recently
+   Viewed rail reads that back. #}
+<script>
+/* ===== scroll progress bar ===== */
+window.addEventListener('scroll', () => {
+    const h = document.documentElement;
+    const pct = (h.scrollTop) / (h.scrollHeight - h.clientHeight) * 100;
+    const bar = document.getElementById('flowProgress');
+    if (bar) bar.style.width = pct + '%';
+});
+
+/* ===== search (routes to Discover, a real page) ===== */
+function searchFor(q){ location.href = '/discover?q=' + encodeURIComponent(q); }
+
+/* ===== social interactions ===== */
+function toggleFollow(btn){
+    const label = btn.textContent.trim();
+    if (label === 'Following') {
+        btn.textContent = 'Follow';
+        btn.classList.remove('glass','border','border-border');
+        btn.classList.add('bg-primary','text-background','font-semibold');
+    } else {
+        btn.textContent = label === 'Add' ? 'Added' : 'Following';
+        btn.classList.remove('bg-primary','text-background','font-semibold');
+        btn.classList.add('glass','border','border-border');
+    }
+}
+/* ---------- likes ----------
+   ONE place decides what "liked" means, because there are now two ways to like a
+   post — the heart button and a double-tap on the photo — and a feed where the
+   two disagree about the count is worse than having only one of them. */
+function setLiked(btn, liked){
+    if (!btn || btn.classList.contains('liked') === liked) return;   /* already there */
+    const icon = btn.querySelector('.material-symbols-outlined');
+    /* the like count lives on a separate line in the card, not in the button */
+    const countEl = btn.querySelector('.like-count') || btn.closest('article')?.querySelector('.like-count');
+    btn.classList.toggle('liked', liked);
+    btn.setAttribute('aria-pressed', liked ? 'true' : 'false');
+    if (icon){
+        icon.classList.add('like-anim');
+        setTimeout(()=>icon.classList.remove('like-anim'), 500);
+    }
+    if (countEl){
+        const n = parseInt(countEl.textContent.replace(/[,.]/g,''), 10) || 0;
+        /* Math.max because a placeholder count could be 0 and "-1 likes" is a bug
+           people screenshot. */
+        countEl.textContent = (liked ? n + 1 : Math.max(0, n - 1)).toLocaleString();
+    }
+}
+function toggleLike(btn){ setLiked(btn, !btn.classList.contains('liked')); }
+
+/* ---------- multi-photo posts: swipe, counter, dots, double-tap ----------
+   Wired as a function rather than inline so the feed API that eventually replaces
+   `feed_posts` can call cfInitPostMedia(newNode) on what it injects. */
+function cfInitPostMedia(root){
+    const REPEAT_MS = 320;   /* a second tap later than this starts a new gesture */
+    const SLOP_PX   = 12;    /* a tap that travelled further than this was a swipe */
+
+    (root || document).querySelectorAll('.post-media').forEach(media => {
+        if (media.dataset.cfWired) return;      /* idempotent */
+        media.dataset.cfWired = '1';
+
+        /* --- counter and dots follow the scroll position ---
+           The scroll is the browser's own (CSS scroll-snap); this only READS
+           scrollLeft. rAF-coalesced because one swipe fires scroll events far
+           faster than the two elements below need rewriting. */
+        const track   = media.querySelector('.post-track');
+        const counter = media.querySelector('.post-counter');
+        const dots    = media.querySelectorAll('.post-dot');
+        const total   = dots.length || parseInt(media.dataset.shots, 10) || 1;
+        if (track && total > 1){
+            let queued = false, shown = 0;
+            track.addEventListener('scroll', () => {
+                if (queued) return;
+                queued = true;
+                requestAnimationFrame(() => {
+                    queued = false;
+                    const i = Math.min(total - 1, Math.max(0,
+                        Math.round(track.scrollLeft / (track.clientWidth || 1))));
+                    if (i === shown) return;
+                    shown = i;
+                    if (counter) counter.textContent = (i + 1) + '/' + total;
+                    dots.forEach((d, n) => d.classList.toggle('is-on', n === i));
+                });
+            }, { passive: true });
+        }
+
+        /* --- double-tap to like ---
+           Counted from pointer events rather than the `dblclick` event, so one
+           code path serves finger, mouse and trackpad — and so the swipe test can
+           veto it, which dblclick offers no hook for. Without that veto, flicking
+           through a carousel would like the post every couple of photos. */
+        let last = 0, sx = 0, sy = 0, moved = false;
+        media.addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; moved = false; });
+        media.addEventListener('pointermove', e => {
+            if (Math.abs(e.clientX - sx) > SLOP_PX || Math.abs(e.clientY - sy) > SLOP_PX) moved = true;
+        }, { passive: true });
+        /* A pan hands the pointer to the browser's scroller, which fires
+           pointercancel and NO pointerup — so without this a tap, then a swipe,
+           then a tap would read as a double-tap and like the post. */
+        media.addEventListener('pointercancel', () => { last = 0; moved = true; });
+        media.addEventListener('pointerup', e => {
+            /* Anything already tappable keeps its own meaning: the product pill is
+               a link and a double-tap on it must open the product. */
+            if (moved || e.target.closest('a, button')) { last = 0; return; }
+            if (last && e.timeStamp - last < REPEAT_MS){
+                last = 0;                       /* a triple tap is not two likes */
+                const btn = media.closest('article')?.querySelector('.like-action');
+                /* Double-tap ONLY EVER LIKES. It is easy to fire by accident while
+                   swiping, and quietly removing a like you already gave is the one
+                   outcome you cannot see happen. The heart still flies either way,
+                   so the gesture always feels like it registered. */
+                setLiked(btn, true);
+                const heart = media.querySelector('.tap-heart');
+                if (heart){
+                    heart.classList.remove('burst');
+                    void heart.offsetWidth;      /* restart it mid-flight */
+                    heart.classList.add('burst');
+                }
+            } else {
+                last = e.timeStamp;
+            }
+        });
+    });
+}
+cfInitPostMedia(document);
+
+function toggleSave(btn){
+    const icon = btn.querySelector('.material-symbols-outlined');
+    const saved = btn.classList.toggle('saved');
+    icon.textContent = saved ? 'bookmark_added' : 'bookmark';
+    icon.classList.add('save-anim');
+    setTimeout(()=>icon.classList.remove('save-anim'), 500);
+    showToast(saved ? 'Saved to your collection' : 'Removed from saved');
+}
+function repost(btn){
+    const icon = btn.querySelector('.material-symbols-outlined');
+    icon.classList.add('save-anim');
+    setTimeout(()=>icon.classList.remove('save-anim'), 500);
+    showToast('Reposted to your profile');
+}
+function toggleComments(btn){
+    const article = btn.closest('article');
+    const block = article ? article.querySelector('.comments-block') : btn.closest('.comments-block');
+    const list = block ? block.querySelector('.comments-list') : null;
+    if (list) list.classList.toggle('hidden');
+}
+function addComment(input){
+    const list = input.closest('.comments-block').querySelector('.comments-list');
+    list.classList.remove('hidden');
+    const p = document.createElement('p');
+    p.className = 'text-sm animate-floatUp';
+    p.innerHTML = `<span class="font-semibold">You</span> <span class="caption-text"></span>`;
+    p.querySelector('.caption-text').textContent = input.value;   /* textContent = XSS-safe */
+    list.appendChild(p);
+    window.cfParseEmoji && window.cfParseEmoji(p);
+    input.value = '';
+}
+function rsvpEvent(btn){
+    btn.textContent = "You're going ✓";
+    btn.classList.remove('bg-primary');
+    btn.classList.add('bg-success');
+    showToast("RSVP confirmed — see you there!");
+}
+
+/* ===== post options sheet ===== */
+let activePost = null;
+function openPostMenu(btn){ activePost = btn.closest('article'); document.getElementById('postMenuOverlay').classList.add('open'); }
+function closePostMenu(){ document.getElementById('postMenuOverlay').classList.remove('open'); }
+function postMenuAction(kind){
+    const author = activePost?.dataset.author || 'this post';
+    if (kind === 'copy'){
+        const url = location.href.split('#')[0] + '#post-' + (activePost?.dataset.post || '');
+        navigator.clipboard?.writeText(url).then(()=>showToast('Link copied')).catch(()=>showToast('Link: ' + url));
+    } else if (kind === 'share'){ closePostMenu(); openShare(author, activePost?.dataset.shareSlug); return; }
+    else if (kind === 'save'){ showToast('Saved to your collection'); }
+    else if (kind === 'hide'){ activePost?.remove(); showToast('Post hidden'); }
+    else if (kind === 'report'){ showToast('Reported — thanks for the feedback'); }
+    closePostMenu();
+}
+
+/* ===== story viewer (placeholder brand stories) ===== */
+const stories = [
+    {name:'RetroVibe', avatar:'https://picsum.photos/80?11', image:'https://picsum.photos/700/1200?1', live:false},
+    {name:'Luxe', avatar:'https://picsum.photos/80?53', image:'https://picsum.photos/700/1200?2', live:true},
+    {name:'UrbanEdge', avatar:'https://picsum.photos/80?61', image:'https://picsum.photos/700/1200?3', live:false},
+    {name:'SneakerLab', avatar:'https://picsum.photos/80?22', image:'https://picsum.photos/700/1200?4', live:false},
+    {name:'FoodHub', avatar:'https://picsum.photos/80?41', image:'https://picsum.photos/700/1200?5', live:false},
+];
+const storyRow = document.getElementById('storyRow');
+if (storyRow) {
+    stories.forEach((s, i) => {
+        const el = document.createElement('div');
+        el.className = 'flex flex-col items-center flex-shrink-0 w-[76px]';
+        el.innerHTML = `
+            <div class="story-ring ${s.live ? 'story-live relative' : ''}" role="button" tabindex="0"
+                 aria-label="View ${s.name}'s story" onclick="openStory(${i})" onkeydown="if(event.key==='Enter')openStory(${i})">
+                <img src="${s.image}" alt="" class="w-16 h-16 sm:w-[68px] sm:h-[68px] rounded-full object-cover border-2 border-background">
+                ${s.live ? '<span class="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-red-500 text-[9px] px-2 py-0.5 rounded-full on-media">LIVE</span>' : ''}
+            </div>
+            <span class="text-[11px] mt-1.5 w-full text-center leading-tight break-words line-clamp-2">${s.name}</span>`;
+        storyRow.appendChild(el);
+    });
+}
+
+let currentStory = 0, storyTimer;
+function openStory(i){ currentStory = i; renderStory(); document.getElementById('storyOverlay').classList.add('open'); }
+function renderStory(){
+    const s = stories[currentStory];
+    document.getElementById('storyImage').src = s.image;
+    document.getElementById('storyAvatar').src = s.avatar;
+    document.getElementById('storyName').textContent = s.name;
+    const row = document.getElementById('storyProgressRow');
+    row.innerHTML = stories.map((_, i) => `<div class="h-1 flex-1 rounded-full bg-white/25 overflow-hidden"><div class="h-full bg-white" style="width:${i < currentStory ? '100%' : '0%'}" id="seg${i}"></div></div>`).join('');
+    clearInterval(storyTimer);
+    if (currentStory < stories.length) {
+        let w = 0;
+        const seg = document.getElementById('seg'+currentStory);
+        storyTimer = setInterval(()=>{
+            w += 2;
+            if (seg) seg.style.width = w + '%';
+            if (w >= 100){ clearInterval(storyTimer); nextStory(); }
+        }, 90);
+    }
+}
+function nextStory(){ if (currentStory < stories.length - 1){ currentStory++; renderStory(); } else { closeStory(); } }
+function prevStory(){ if (currentStory > 0){ currentStory--; renderStory(); } }
+function closeStory(){ clearInterval(storyTimer); document.getElementById('storyOverlay').classList.remove('open'); }
+function pulseStoryLike(btn){ btn.querySelector('.material-symbols-outlined').classList.add('like-anim'); setTimeout(()=>btn.querySelector('.material-symbols-outlined').classList.remove('like-anim'),500); }
+
+/* ===== recently viewed =====
+   Products opened on /product/{slug} — cartflow-cart.js keeps the slugs, this
+   rail draws them. `BROWSE_INDEX` is the catalogue trimmed to name/price/image
+   by app/services/catalog.py, with the price ALREADY formatted there, so this
+   file never re-invents how naira reads. Nothing is stored per-product here:
+   forget the slug list and the rail is simply empty. */
+const BROWSE_INDEX = {{ browse_index | tojson }};
+const BY_SLUG = Object.create(null);
+BROWSE_INDEX.forEach(p => { BY_SLUG[p.slug] = p; });
+
+function paintRecentlyViewed(){
+    const row = document.getElementById('recentlyViewedRow');
+    if (!row || !window.CartFlowStore) return;
+    /* A slug that has left the catalogue is skipped rather than rendered as a
+       broken tile — the same reconciliation the Shop does for cart lines. */
+    const items = window.CartFlowStore.readRecent().map(s => BY_SLUG[s]).filter(Boolean);
+    if (!items.length) return;                       /* keep the honest empty line */
+
+    row.textContent = '';
+    for (const p of items){
+        const a = document.createElement('a');
+        a.href = '/product/' + p.slug;
+        a.className = 'shrink-0 w-24 group';
+        a.setAttribute('aria-label', 'View ' + p.name + ', ' + p.price_text);
+
+        const img = document.createElement('img');
+        img.src = p.image;
+        img.alt = '';
+        img.loading = 'lazy';
+        img.className = 'w-24 h-20 object-cover rounded-xl mb-1';
+
+        /* textContent, never innerHTML: these names come from the catalogue
+           today and from a sellers' table tomorrow. */
+        const name = document.createElement('p');
+        name.className = 'text-xs truncate group-hover:text-primary transition-colors';
+        name.textContent = p.name;
+
+        const price = document.createElement('p');
+        price.className = 'text-xs text-primary font-semibold';
+        price.textContent = p.price_text;
+
+        a.append(img, name, price);
+        row.appendChild(a);
+    }
+}
+paintRecentlyViewed();
+
+/* ===== share ===== */
+let shareItem = '';
+/* The post's first tagged product slug, if it has one. Carried because "send in
+   a message" is a real send now and a shared_product message needs a slug —
+   see cfShareTo('dm'). Empty for a post that tags nothing. */
+let shareSlug = '';
+function openShare(name, slug){
+    shareItem = name;
+    shareSlug = slug || '';
+    document.getElementById('shareItemName').textContent = name;
+    document.getElementById('shareOverlay').classList.add('open');
+}
+function closeShare(){ document.getElementById('shareOverlay').classList.remove('open'); }
+function cfShareLink(){ return location.href.split('#')[0] + '#' + encodeURIComponent(shareItem); }
+function copyShareLink(){
+    const url = cfShareLink();
+    navigator.clipboard?.writeText(url).then(()=> showToast('Link copied to clipboard')).catch(()=> showToast('Link: ' + url));
+}
+
+/* These buttons used to toast "Shared to WhatsApp" and do nothing, which is a
+   promise the app didn't keep. Three of the four services publish a real web
+   share intent, so those now actually open — and the two that don't say what
+   they did instead rather than claiming a share happened.
+
+   noopener on every window.open: without it the opened tab gets a handle on
+   this one through window.opener and can navigate it. */
+function cfShareTo(where){
+    const url  = cfShareLink();
+    const text = 'Check out ' + shareItem + ' on CartFlow';
+    const open = (u) => window.open(u, '_blank', 'noopener,noreferrer');
+    if (where === 'whatsapp'){
+        open('https://wa.me/?text=' + encodeURIComponent(text + ' ' + url));
+    } else if (where === 'x'){
+        open('https://x.com/intent/post?text=' + encodeURIComponent(text) + '&url=' + encodeURIComponent(url));
+    } else if (where === 'facebook'){
+        open('https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent(url));
+    } else if (where === 'instagram'){
+        /* Instagram has no web share endpoint at all — there is no URL that opens
+           a composer with a link in it. Every app that offers "share to Instagram"
+           on the web copies the link and lets you paste. Say that, don't pretend. */
+        copyShareLink();
+        showToast('Link copied — paste it into your Instagram story or bio');
+        return;
+    } else if (where === 'dm'){
+        /* A real send now — messaging exists, and a shared_product message is
+           exactly the kind the API has for this. It goes through the compose
+           picker at /messages rather than sending from here, because this sheet
+           knows WHAT to share and not WHO to, and because a send has to be a POST.
+
+           Only when the post tags a product. A post itself is not a thing
+           messaging can carry — there is no post permalink and no shared_post
+           kind — so an untagged post falls back to the clipboard and says so
+           rather than opening a picker for something that cannot be attached. */
+        if (shareSlug){
+            location.href = '/messages?share=' + encodeURIComponent(shareSlug);
+            return;
+        }
+        copyShareLink();
+        showToast('Link copied — paste it into a chat');
+        return;
+    }
+    closeShare();
+}
+
+/* tap the scrim to dismiss any overlay */
+document.querySelectorAll('.overlay').forEach(o => {
+    o.addEventListener('click', (e) => { if (e.target === o) o.classList.remove('open'); });
+});
+
+/* ===== flash deal countdown ===== */
+let dealEnd = Date.now() + (2*3600 + 17*60 + 43) * 1000;
+function updateCountdown(){
+    const el = document.getElementById('flashCountdown');
+    if (!el) return;
+    const remaining = Math.max(0, dealEnd - Date.now());
+    if (remaining <= 0){ el.textContent = 'Deal ended'; return; }
+    const h = String(Math.floor(remaining/3600000)).padStart(2,'0');
+    const m = String(Math.floor((remaining%3600000)/60000)).padStart(2,'0');
+    const s = String(Math.floor((remaining%60000)/1000)).padStart(2,'0');
+    el.textContent = `${h}:${m}:${s}`;
+}
+setInterval(updateCountdown, 1000);
+updateCountdown();
+
+/* ===== feed filter tabs ===== */
+document.querySelectorAll(".feed-tab").forEach(tab=>{
+    tab.onclick=()=>{
+        document.querySelectorAll(".feed-active").forEach(t=>{ t.classList.remove("feed-active"); t.classList.add("feed-tab","glass"); t.setAttribute('aria-selected','false'); });
+        tab.classList.remove("feed-tab","glass");
+        tab.classList.add("feed-active");
+        tab.setAttribute('aria-selected','true');
+    };
+});
+
+/* re-render emoji in any content injected above (stories, recently-viewed) */
+window.cfParseEmoji && window.cfParseEmoji(document.body);
+</script>
+{% endblock %}

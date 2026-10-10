@@ -1,0 +1,1270 @@
+{% extends "base.html" %}
+{% from "partials/avatar.html" import avatar %}
+
+{# ==========================================================================
+   PROFILE — /@username (docs/product/08).
+
+   THE FIRST PAGE WIRED TO REAL BACKEND DATA. Everything about identity here is
+   live: the photo, name, handle, bio, affiliation, follower/following counts and
+   your own follow state all come from `users` / `media` / `organizations` /
+   `user_follows` via app/services/follow.py and app/services/avatar.py. Nothing
+   on this page is curated placeholder — which is exactly why the content tabs
+   below are EMPTY rather than filled with sample rows. There are still no Post /
+   Product / Event / Review / Like / Save / Repost models (see docs/product/06),
+   so each panel is an honest empty state. Do not seed them with fixtures: on
+   this page a fake row would read as a real one belonging to a real account.
+
+   Context from app/routers/pages.py: `profile_user`, `profile_org` (the school
+   for a student, the business itself for a business account), `profile_business`
+   (the org this user OWNS, sellers only), `stats`, `is_own_profile`,
+   `is_business_profile` (== is_seller — the CAPABILITY, so a student who sells
+   gets the seller tab set too), `share_url`.
+
+   THE HANDLE IS THE IDENTITY. `@username` is the primary line and
+   `display_name` the secondary one, because only the handle is unique — two
+   accounts can both call themselves "Ada Lovelace", and the name is the field
+   people change. Same reason Instagram leads with the handle. When the two are
+   effectively the same string the display name is dropped rather than repeated.
+
+   POSTS ARE SELLER-ONLY, COUNT INCLUDED. Posting is gated on `is_seller`
+   (stories are for everyone; posts and the Business Hub are not), so a customer
+   gets neither a Posts tab nor a Posts stat — a "0 Posts" box on an account that
+   cannot post reads as a failure rather than a rule.
+
+   SETTINGS LIVE AT /settings. This page's ⋯ sheet keeps only what acts on the
+   profile in front of you — edit, photo, share, log out — and links out for
+   everything else. Starting to sell and the graduation toggle moved to
+   app/templates/settings.html, which is also where the "Start selling" flow now
+   lives; nothing on the profile creates a business any more.
+
+   NO GRADUATE / ALUMNI BADGE. `graduated_at` is togglable in settings and is
+   never rendered as a badge, pill or label — a product rule, not an oversight.
+========================================================================== #}
+
+{# --- affiliation lines ------------------------------------------------
+   For a `business` account, organization_id IS the owned business (see
+   app/services/auth.py:310), so profile_org and profile_business are the same
+   row and must not be printed twice. For a student who sells they are two
+   different orgs: school + business. #}
+{% set business_org = profile_business %}
+{% set school_org = profile_org if (profile_org and not (profile_business and profile_business.id == profile_org.id)) else None %}
+{% set business_name = (business_org.short_name or business_org.official_name) if business_org else None %}
+{% set business_category = business_org.type.name if (business_org and business_org.type) else None %}
+{% set school_name = (school_org.short_name or school_org.official_name) if school_org else None %}
+
+{# --- identity ---------------------------------------------------------
+   `display_name` is only shown when it adds something. Signup seeds it from the
+   full name, so for plenty of accounts it is the handle with different spacing
+   or capitalisation — printing both then just repeats the same word twice under
+   a bigger font. #}
+{% set handle_key = profile_user.username | lower | replace(".", "") | replace("_", "") | replace("-", "") %}
+{% set name_key = profile_user.display_name | lower | replace(" ", "") %}
+{% set show_display_name = name_key != handle_key %}
+
+{# --- tab set (doc 08 §6) ----------------------------------------------
+   One expression rather than conditional appends, so there is no question
+   about Jinja scoping.
+
+   Posts sits inside the seller branch: only a seller can post (stories are for
+   everyone, posts are not), so a customer's profile has no Posts tab at all
+   rather than one that can never fill. Liked and Saved are PRIVATE and rendered
+   only for the owner — gated server-side, not hidden with CSS, so a visitor's
+   HTML never contains them. #}
+{% set tabs =
+    ([{"key": "products", "label": "Products", "icon": "sell"},
+      {"key": "posts", "label": "Posts", "icon": "grid_on"},
+      {"key": "events", "label": "Events", "icon": "event"},
+      {"key": "reviews", "label": "Reviews", "icon": "star"}] if is_business_profile else [])
+    + ([{"key": "liked", "label": "Liked", "icon": "favorite"},
+        {"key": "saved", "label": "Saved", "icon": "bookmark"}] if is_own_profile else [])
+    + [{"key": "reposts", "label": "Reposts", "icon": "repeat"}] %}
+
+{# --- empty-state copy -------------------------------------------------
+   Every panel is empty for the same reason (no content models exist), but the
+   copy is per-tab so it reads as an intentional state rather than a failure,
+   and it never implies content is being withheld. Second person for your own
+   profile, third for a visitor. `cta_href` is only set where the destination is
+   a REAL route — no CTA is better than one that goes nowhere. #}
+{% set owner_name = profile_user.display_name %}
+{% set panel_copy = {
+    "products": {
+        "title": "No products yet",
+        "body": ("Products you list in the Business Hub will show up here and in Shop." if is_own_profile
+                 else owner_name ~ " hasn't listed anything for sale yet."),
+        "cta_label": ("Open Business Hub" if is_own_profile else "Browse Shop"),
+        "cta_href": ("/dashboard" if is_own_profile else "/marketplace")},
+    "posts": {
+        "title": "No posts yet",
+        "body": ("Posts you share will appear here." if is_own_profile
+                 else owner_name ~ " hasn't posted anything yet."),
+        "cta_label": ("Find people to follow" if is_own_profile else None),
+        "cta_href": ("/discover" if is_own_profile else None)},
+    "events": {
+        "title": "No events yet",
+        "body": ("Events you host will be listed here, with tickets and check-in." if is_own_profile
+                 else "No upcoming events."),
+        "cta_label": None, "cta_href": None},
+    "reviews": {
+        "title": "No reviews yet",
+        "body": ("Buyer reviews appear here after your first completed order." if is_own_profile
+                 else "This seller hasn't been reviewed yet."),
+        "cta_label": None, "cta_href": None},
+    "liked": {
+        "title": "Nothing liked yet",
+        "body": "Posts and products you like collect here. Only you can see this tab.",
+        "cta_label": "Explore CartFlow", "cta_href": "/discover"},
+    "saved": {
+        "title": "Nothing saved yet",
+        "body": "Save something to come back to it later. Only you can see this tab.",
+        "cta_label": "Explore CartFlow", "cta_href": "/discover"},
+    "reposts": {
+        "title": "No reposts yet",
+        "body": ("Anything you repost will show up here." if is_own_profile
+                 else owner_name ~ " hasn't reposted anything yet."),
+        "cta_label": None, "cta_href": None}
+} %}
+
+{# The handle is the title on this page, not the CartFlow wordmark: a profile is
+   a place you navigate INTO, so it gets a back arrow like every native app. #}
+{% block topbar %}
+<header class="sticky top-0 z-40 h-14 sm:h-16 border-b border-border blur-bg">
+    <div class="h-full px-2 sm:px-8 flex items-center justify-between gap-2">
+        <div class="flex items-center gap-1 min-w-0">
+            <button type="button" id="profileBack" aria-label="Go back"
+                    class="w-10 h-10 rounded-xl flex items-center justify-center hover-card shrink-0">
+                <span class="material-symbols-outlined text-[22px]">arrow_back</span>
+            </button>
+            <h1 class="font-display text-base sm:text-lg font-bold truncate">@{{ profile_user.username }}</h1>
+        </div>
+        <div class="flex items-center gap-1.5 sm:gap-2">
+            {% if is_own_profile %}
+            {# A real link, not a sheet row: settings is a page now, and the
+               fastest path to it is one tap from your own profile. #}
+            <a href="/settings" aria-label="Settings"
+               class="glass w-10 h-10 rounded-xl flex items-center justify-center hover-card">
+                <span class="material-symbols-outlined text-[20px]">settings</span>
+            </a>
+            {% endif %}
+            <button type="button" data-open-sheet="shareSheet" aria-label="Share this profile"
+                    class="glass w-10 h-10 rounded-xl flex items-center justify-center hover-card">
+                <span class="material-symbols-outlined text-[20px]">ios_share</span>
+            </button>
+            <button type="button" data-open-sheet="moreSheet"
+                    aria-label="More options"
+                    class="glass w-10 h-10 rounded-xl flex items-center justify-center hover-card">
+                <span class="material-symbols-outlined text-[20px]">more_horiz</span>
+            </button>
+        </div>
+    </div>
+</header>
+{% endblock %}
+
+{% block content %}
+<div class="page pb-24 lg:pb-6">
+
+    <!-- ===================== IDENTITY =====================
+         ARRANGEMENT NOTE. This header used to be seven stacked bands — cover,
+         avatar, handle, chip row, three affiliation rows, bio, three stat
+         cards, actions — which is why it filled a phone screen on its own
+         before you saw a single thing the account had made. It is now three:
+
+           row 1   avatar │ handle · seller mark · display name · stats
+           row 2   one wrapped meta line (business, state, school, joined)
+           row 3   bio, then the actions
+
+         The win is horizontal: the space to the right of a 64px avatar was
+         empty, and it is exactly wide enough for the identity lines and the
+         stat row, so the same content costs a third of the height.
+
+         The per-account colour survives as a WASH behind the panel, seeded from
+         the deterministic `avatar_hue` filter, instead of a 96px gradient band.
+         Colour with no height. There is no cover_image column and this is not
+         pretending to be one. It is also the only per-account colour left now
+         that the avatar is a neutral silhouette rather than a coloured monogram.
+
+         The photo is real — `avatar_src` returns a Cloudinary derivative when
+         the user has uploaded one, else None and the macro draws the default
+         profile picture. -->
+    {% set cover_hue = profile_user.username | avatar_hue %}
+    <section class="glass panel relative mt-1"
+             style="background-image:
+                    radial-gradient(85% 130% at 0% 0%, hsl({{ cover_hue }} 62% 45% / .26), transparent 62%),
+                    radial-gradient(65% 110% at 100% 0%, hsl({{ (cover_hue + 45) % 360 }} 66% 48% / .16), transparent 64%);">
+
+        <div class="panel-pad">
+
+            <!-- ROW 1 — avatar left, everything that identifies the account to
+                 its right. `min-w-0` on the text column is what lets a long
+                 handle truncate instead of shoving the layout sideways. -->
+            <div class="flex items-start gap-3.5">
+                <div class="relative shrink-0">
+                    {{ avatar(profile_user.display_name, profile_user.username,
+                              "w-16 h-16 sm:w-[72px] sm:h-[72px]", "rounded-2xl",
+                              "shadow-card", "text-xl sm:text-2xl",
+                              src=avatar_src(profile_user, "lg")) }}
+                    {% if is_own_profile %}
+                    {# Owner-only, and it always opens the sheet — even when uploads
+                       aren't configured, because the sheet is where that gets
+                       explained. A hidden button would just look like a bug. #}
+                    <button type="button" data-open-sheet="photoSheet" aria-label="Change your profile photo"
+                            class="absolute -bottom-1.5 -right-1.5 w-7 h-7 rounded-full bg-primary text-background flex items-center justify-center shadow-card border-2 border-[var(--c-surface)]">
+                        <span class="material-symbols-outlined text-[15px]">photo_camera</span>
+                    </button>
+                    {% endif %}
+                </div>
+
+                <div class="min-w-0 flex-1">
+                    <!-- The handle is the heading: it is the unique, permanent
+                         identifier. The seller mark rides on the same line as an
+                         inline badge so it costs no row of its own, and wraps
+                         under the handle by itself when the handle is long.
+
+                         The mark says "sells on CartFlow", NOT "verified" —
+                         organizations.status is 'unverified' for every business
+                         created at signup, and claiming a verification we have
+                         not done would be a lie the user cannot check. -->
+                    <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <h2 id="profileHandle" class="font-display text-lg sm:text-xl font-bold leading-tight break-all">@{{ profile_user.username }}</h2>
+                        {% if is_business_profile %}
+                        <span class="inline-flex items-center gap-1 bg-primary/15 text-primary text-[10.5px] font-bold px-1.5 py-0.5 rounded-full shrink-0">
+                            <span class="material-symbols-outlined text-[13px]" aria-hidden="true">storefront</span>
+                            Seller
+                        </span>
+                        {% endif %}
+                    </div>
+
+                    {# Only when it says something the handle doesn't. #}
+                    {% if show_display_name %}
+                    <p id="profileName" class="text-[13px] text-muted leading-snug mt-0.5 break-words">{{ profile_user.display_name }}</p>
+                    {% endif %}
+
+                    <!-- STATS — one inline row, not three cards. Three tall
+                         boxes gave a pair of zeroes more of the screen than the
+                         person's own name. Followers and Following are still
+                         real buttons onto the paged list.
+
+                         A customer gets TWO stats. Posts appears only for a
+                         seller, because only a seller can post — showing a
+                         customer "0 posts" describes a limit as if it were
+                         their activity. -->
+                    <div class="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[13px]">
+                        <button type="button" data-open-sheet="peopleSheet" data-people="followers"
+                                class="flex items-center gap-1 hover:opacity-70 transition-opacity">
+                            <span id="followerCount" class="font-bold">{{ "{:,}".format(stats.followers) }}</span>
+                            <span class="text-muted">follower{{ '' if stats.followers == 1 else 's' }}</span>
+                        </button>
+                        <button type="button" data-open-sheet="peopleSheet" data-people="following"
+                                class="flex items-center gap-1 hover:opacity-70 transition-opacity">
+                            <span id="followingCount" class="font-bold">{{ "{:,}".format(stats.following) }}</span>
+                            <span class="text-muted">following</span>
+                        </button>
+                        {% if is_business_profile %}
+                        {# Not a button: a real count that is 0 because no post can
+                           exist yet, so there is nothing to open. #}
+                        <span class="flex items-center gap-1">
+                            <span class="font-bold">0</span>
+                            <span class="text-muted">posts</span>
+                        </span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- ROW 2 — affiliation, one wrapped line instead of three rows.
+                 Every item is a column we actually have; nothing invented to
+                 fill the space. The `·` separators come from `.meta-line` in
+                 extra_style rather than being typed between the items, because
+                 with four optional pieces the Jinja for "a dot only when
+                 something precedes me" is worse than one CSS rule. -->
+            <div class="meta-line flex flex-wrap items-center gap-x-2 gap-y-1 mt-3 text-[12.5px] text-muted">
+                {% if business_name %}
+                <span class="inline-flex items-center gap-1 min-w-0 max-w-full">
+                    <span class="material-symbols-outlined text-[15px] shrink-0" aria-hidden="true">storefront</span>
+                    <span class="font-semibold text-white truncate">{{ business_name }}</span>
+                    {% if business_org.state %}<span class="shrink-0">· {{ business_org.state }}</span>{% endif %}
+                </span>
+                {% endif %}
+                {% if business_category %}<span>{{ business_category }}</span>{% endif %}
+                {% if school_name %}
+                <span class="inline-flex items-center gap-1 min-w-0 max-w-full">
+                    <span class="material-symbols-outlined text-[15px] shrink-0" aria-hidden="true">school</span>
+                    <span class="truncate">{{ school_name }}</span>
+                </span>
+                {% endif %}
+                <span class="inline-flex items-center gap-1 shrink-0">
+                    <span class="material-symbols-outlined text-[15px]" aria-hidden="true">calendar_month</span>
+                    Joined {{ profile_user.created_at.strftime('%b %Y') }}
+                </span>
+            </div>
+
+            <!-- ROW 3 — bio, run through caption_html so #hashtags and @mentions
+                 inside a bio are tappable, exactly like a feed caption, and line
+                 breaks survive. The filter escapes everything it doesn't linkify. -->
+            {% if profile_user.bio %}
+            <p id="profileBio" class="caption-text text-[13.5px] mt-2.5 leading-relaxed">{{ profile_user.bio | caption_html }}</p>
+            {% elif is_own_profile %}
+            <button type="button" data-open-sheet="editSheet"
+                    class="text-[13px] text-primary font-semibold mt-2.5 flex items-center gap-1">
+                <span class="material-symbols-outlined text-[16px]">add</span> Add a bio
+            </button>
+            {% else %}
+            <p id="profileBio" class="caption-text text-[13.5px] mt-2.5 leading-relaxed"></p>
+            {% endif %}
+
+            <!-- ===================== ACTIONS =====================
+                 Full-width on a phone, where they're thumb targets and there is
+                 nothing to share the row with. From sm up they shrink to their
+                 own width and sit left: two pills stretched across 600px of
+                 desktop read as a form, not a profile. -->
+            <div class="flex items-center gap-2 mt-3.5">
+                {% if is_own_profile %}
+                <button type="button" data-open-sheet="editSheet"
+                        class="btn-glow flex-1 sm:flex-none sm:px-6 bg-primary text-background font-bold rounded-full py-2 text-[13px] flex items-center justify-center gap-1.5">
+                    <span class="material-symbols-outlined text-[17px]">edit</span> Edit profile
+                </button>
+                <button type="button" data-open-sheet="shareSheet"
+                        class="glass flex-1 sm:flex-none sm:px-6 font-semibold rounded-full py-2 text-[13px] flex items-center justify-center gap-1.5 hover-card">
+                    <span class="material-symbols-outlined text-[17px]">ios_share</span> Share
+                </button>
+
+                {% elif current_user %}
+                {# data-following is the source of truth for the toggle, seeded from
+                   the server so a reload keeps the state. #}
+                <button type="button" id="followBtn" data-following="{{ 'true' if stats.is_following else 'false' }}"
+                        class="{{ 'glass border border-border font-semibold' if stats.is_following else 'btn-glow bg-primary text-background font-bold' }} flex-1 sm:flex-none sm:px-6 rounded-full py-2 text-[13px] flex items-center justify-center gap-1.5">
+                    <span class="material-symbols-outlined text-[17px]">{{ 'check' if stats.is_following else 'person_add' }}</span>
+                    <span id="followLabel">{{ 'Following' if stats.is_following else 'Follow' }}</span>
+                </button>
+                {# Straight into the thread with this person. It is a link, not a
+                   button that opens something in place, because the thread has a
+                   URL of its own and this is the shortest honest expression of
+                   that — right-click, share, back button, all free.
+
+                   Nothing is checked before rendering it. Whether a conversation
+                   exists, whether §6's one-message hold is already spent, whether
+                   this account has blocked the viewer — all of that is answered by
+                   the thread fetch, and deliberately not here: a Message button
+                   that quietly disappeared for a blocked viewer would tell them
+                   they were blocked, which is exactly what §22 spends the service
+                   layer refusing to say. #}
+                <a href="/messages/@{{ profile_user.username }}"
+                   class="glass flex-1 sm:flex-none sm:px-6 font-semibold rounded-full py-2 text-[13px] flex items-center justify-center gap-1.5 hover-card">
+                    <span class="material-symbols-outlined text-[17px]">chat_bubble</span> Message
+                </a>
+
+                {% else %}
+                {# Signed out: a plain link, not a button that fails. Following is a
+                   write, so it needs an account — say so before the tap, not after. #}
+                <a href="/login" class="btn-glow flex-1 sm:flex-none sm:px-6 bg-primary text-background font-bold rounded-full py-2 text-[13px] flex items-center justify-center gap-1.5">
+                    <span class="material-symbols-outlined text-[17px]">person_add</span> Log in to follow
+                </a>
+                <button type="button" data-open-sheet="shareSheet"
+                        class="glass flex-1 font-semibold rounded-full py-3 text-sm flex items-center justify-center gap-2 hover-card">
+                    <span class="material-symbols-outlined text-[19px]">ios_share</span> Share
+                </button>
+                {% endif %}
+            </div>
+
+            {% if is_own_profile and is_business_profile %}
+            {# Sellers only. The "Start selling" card that used to sit here for
+               non-sellers moved to /settings: creating a business is an account
+               action, not something you do from the page that displays you. #}
+            <a href="/dashboard" class="row-link mt-3 border border-border">
+                <span class="w-8 h-8 rounded-lg bg-card border border-border flex items-center justify-center shrink-0" aria-hidden="true">
+                    <span class="material-symbols-outlined text-[18px]">dashboard</span>
+                </span>
+                <span class="min-w-0 flex-1">
+                    <span class="block text-[13px] font-bold">Business Hub</span>
+                    <span class="block text-[11.5px] text-muted">Products, orders and your pickup address.</span>
+                </span>
+                <span class="material-symbols-outlined text-[19px] text-muted shrink-0" aria-hidden="true">chevron_right</span>
+            </a>
+            {% endif %}
+
+        </div>
+    </section>
+
+    <!-- ===================== TABS (doc 08 §6) =====================
+         Sticky under the top bar and horizontally scrollable, so a seller's six
+         tabs stay reachable on a narrow phone without wrapping into two rows.
+         The panels are all in the DOM and toggled with `hidden` — there is
+         nothing to fetch, so a tab switch should be instant.
+
+         A single-tab strip isn't rendered at all: a visitor to a customer's
+         profile sees only Reposts, and one tab is chrome that explains nothing. -->
+    {% if tabs | length > 1 %}
+    <div class="sticky top-14 sm:top-16 z-30 -mx-3 sm:mx-0 mt-4 border-b border-border blur-bg sm:rounded-t-2xl">
+        <div id="profileTabs" role="tablist" aria-label="Profile sections"
+             class="flex gap-1 overflow-x-auto hide-scrollbar px-3 sm:px-2">
+            {% for t in tabs %}
+            <button type="button" role="tab" data-tab="{{ t.key }}"
+                    id="tab-{{ t.key }}" aria-controls="panel-{{ t.key }}"
+                    aria-selected="{{ 'true' if loop.first else 'false' }}"
+                    class="profile-tab shrink-0 flex items-center gap-1.5 px-3 py-2.5 text-[13px] font-semibold border-b-2 {{ 'border-primary text-primary' if loop.first else 'border-transparent text-muted' }}">
+                <span class="material-symbols-outlined text-[17px]" aria-hidden="true">{{ t.icon }}</span>
+                {{ t.label }}
+            </button>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ===================== PANELS =====================
+         Honest empty states, not placeholder rows. When the content backend
+         lands, each panel's inner block is replaced by a real list; the tab
+         mechanics above do not change. -->
+    {% for t in tabs %}
+    <div id="panel-{{ t.key }}" role="tabpanel" aria-labelledby="tab-{{ t.key }}"
+         class="profile-panel {{ '' if loop.first else 'hidden' }} pt-4">
+        {% set copy = panel_copy[t.key] %}
+        <div class="text-center px-6 py-8">
+            <span class="w-11 h-11 rounded-xl bg-card border border-border inline-flex items-center justify-center mb-3" aria-hidden="true">
+                <span class="material-symbols-outlined text-[22px] text-muted">{{ t.icon }}</span>
+            </span>
+            <h3 class="font-display text-[15px] font-bold leading-tight">{{ copy.title }}</h3>
+            <p class="caption-text text-[13px] mt-1 max-w-[19rem] mx-auto leading-relaxed">{{ copy.body }}</p>
+            {% if copy.cta_href %}
+            <a href="{{ copy.cta_href }}" class="glass inline-flex items-center gap-1.5 mt-4 px-4 py-2 rounded-full text-[13px] font-semibold hover-card">
+                {{ copy.cta_label }}
+                <span class="material-symbols-outlined text-[17px]" aria-hidden="true">arrow_forward</span>
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+
+    {# Said once, at the bottom, rather than inside every panel: the tabs are
+       empty because the feature is unbuilt, not because this account is empty or
+       something is hidden from you. Worded per profile type so it never promises
+       a customer the seller features they don't have. #}
+    <p class="text-center text-[11px] text-muted px-6 pb-2 opacity-70">
+        {% if is_business_profile %}
+        Posts, products, events and reviews arrive with CartFlow's content release.
+        {% else %}
+        Sharing and reposting arrive with CartFlow's content release.
+        {% endif %}
+    </p>
+
+</div>
+{% endblock %}
+
+{% block modals %}
+{# ===================== SHEETS =====================
+   Bottom sheets on mobile, centred cards on sm+ (see extra_style). Every one is
+   opened by a [data-open-sheet] button and closed by [data-close-sheet], the
+   scrim, or Escape — wired once in extra_script.
+
+   Own-profile sheets are only RENDERED for the owner, not hidden with CSS: a
+   visitor's HTML must not contain the Edit-profile form or the Log-out button. #}
+
+<!-- ---------- ⋯ ---------- -->
+<div id="moreSheet" class="overlay" role="dialog" aria-modal="true" aria-labelledby="moreSheetTitle">
+    <div class="sheet glass w-full sm:max-w-md rounded-t-[20px] sm:rounded-[20px] overflow-hidden shadow-card">
+        <div class="flex items-center justify-between px-5 pt-5 pb-3">
+            <h3 id="moreSheetTitle" class="font-display text-lg font-bold">{{ 'Your profile' if is_own_profile else 'Options' }}</h3>
+            <button type="button" data-close-sheet aria-label="Close"
+                    class="w-9 h-9 rounded-full glass flex items-center justify-center">
+                <span class="material-symbols-outlined text-[20px]">close</span>
+            </button>
+        </div>
+
+        <div class="px-3 pb-[calc(16px+var(--safe-b))] sm:pb-4">
+            {% if is_own_profile %}
+            {# Only what acts on the profile you're looking at. Account-level
+               things — starting to sell, graduation, email, theme — live on
+               /settings, one row below. #}
+
+            <button type="button" data-open-sheet="editSheet" class="sheet-row">
+                <span class="sheet-row-icon"><span class="material-symbols-outlined text-[20px]">edit</span></span>
+                <span class="min-w-0 flex-1">
+                    <span class="block text-sm font-semibold">Edit profile</span>
+                    <span class="block text-xs text-muted">Your name and bio.</span>
+                </span>
+                <span class="material-symbols-outlined text-[20px] text-muted" aria-hidden="true">chevron_right</span>
+            </button>
+
+            <button type="button" data-open-sheet="photoSheet" class="sheet-row">
+                <span class="sheet-row-icon"><span class="material-symbols-outlined text-[20px]">photo_camera</span></span>
+                <span class="min-w-0 flex-1">
+                    <span class="block text-sm font-semibold">{{ 'Change photo' if avatar_src(profile_user) else 'Add a photo' }}</span>
+                    <span class="block text-xs text-muted">Shown everywhere you appear.</span>
+                </span>
+                <span class="material-symbols-outlined text-[20px] text-muted" aria-hidden="true">chevron_right</span>
+            </button>
+
+            <a href="/settings" class="sheet-row">
+                <span class="sheet-row-icon"><span class="material-symbols-outlined text-[20px]">settings</span></span>
+                <span class="min-w-0 flex-1">
+                    <span class="block text-sm font-semibold">Settings</span>
+                    <span class="block text-xs text-muted">{{ 'Business, account and preferences.' if is_business_profile else 'Start selling, account and preferences.' }}</span>
+                </span>
+                <span class="material-symbols-outlined text-[20px] text-muted" aria-hidden="true">chevron_right</span>
+            </a>
+
+            <button type="button" data-open-sheet="shareSheet" class="sheet-row">
+                <span class="sheet-row-icon"><span class="material-symbols-outlined text-[20px]">ios_share</span></span>
+                <span class="min-w-0 flex-1"><span class="block text-sm font-semibold">Share profile</span></span>
+                <span class="material-symbols-outlined text-[20px] text-muted" aria-hidden="true">chevron_right</span>
+            </button>
+
+            <button type="button" id="logoutBtn" class="sheet-row">
+                <span class="sheet-row-icon"><span class="material-symbols-outlined text-[20px] text-danger">logout</span></span>
+                <span class="min-w-0 flex-1"><span class="block text-sm font-semibold text-danger">Log out</span></span>
+            </button>
+
+            {% else %}
+
+            <button type="button" data-open-sheet="shareSheet" class="sheet-row">
+                <span class="sheet-row-icon"><span class="material-symbols-outlined text-[20px]">ios_share</span></span>
+                <span class="min-w-0 flex-1"><span class="block text-sm font-semibold">Share profile</span></span>
+                <span class="material-symbols-outlined text-[20px] text-muted" aria-hidden="true">chevron_right</span>
+            </button>
+
+            <button type="button" id="copyLinkRow" class="sheet-row">
+                <span class="sheet-row-icon"><span class="material-symbols-outlined text-[20px]">link</span></span>
+                <span class="min-w-0 flex-1"><span class="block text-sm font-semibold">Copy link</span></span>
+            </button>
+
+            {# Report is a client-side acknowledgement, not a filed report: there
+               is no moderation backend (V1 moderation is manual, per the Events
+               spec). The copy says so instead of pretending a queue exists. #}
+            <button type="button" id="reportRow" class="sheet-row">
+                <span class="sheet-row-icon"><span class="material-symbols-outlined text-[20px] text-danger">flag</span></span>
+                <span class="min-w-0 flex-1">
+                    <span class="block text-sm font-semibold text-danger">Report this profile</span>
+                    <span class="block text-xs text-muted">Reporting opens when moderation ships.</span>
+                </span>
+            </button>
+
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- ---------- Share ---------- -->
+<div id="shareSheet" class="overlay" role="dialog" aria-modal="true" aria-labelledby="shareSheetTitle">
+    <div class="sheet glass w-full sm:max-w-md rounded-t-[20px] sm:rounded-[20px] overflow-hidden shadow-card">
+        <div class="flex items-center justify-between px-5 pt-5 pb-3">
+            <h3 id="shareSheetTitle" class="font-display text-lg font-bold">Share profile</h3>
+            <button type="button" data-close-sheet aria-label="Close"
+                    class="w-9 h-9 rounded-full glass flex items-center justify-center">
+                <span class="material-symbols-outlined text-[20px]">close</span>
+            </button>
+        </div>
+        <div class="px-5 pb-[calc(20px+var(--safe-b))] sm:pb-5">
+            {# share_url is absolute and built from APP_BASE_URL in the route, not
+               from request.base_url — a spoofed Host header must not end up in a
+               link the user copies and sends to someone. #}
+            <div class="bg-card border border-border rounded-2xl px-4 py-3 text-sm break-all font-mono">{{ share_url }}</div>
+            <div class="grid grid-cols-2 gap-3 mt-4">
+                <button type="button" id="shareCopyBtn"
+                        class="btn-glow bg-primary text-background font-bold rounded-full py-3 text-sm flex items-center justify-center gap-2">
+                    <span class="material-symbols-outlined text-[19px]">content_copy</span> Copy link
+                </button>
+                <button type="button" id="shareNativeBtn"
+                        class="glass font-semibold rounded-full py-3 text-sm flex items-center justify-center gap-2 hover-card">
+                    <span class="material-symbols-outlined text-[19px]">share</span> Share…
+                </button>
+            </div>
+            {# Send it inside CartFlow — a real shared_profile message, not a
+               pasted link. A plain link to /messages?share_user=…, because the
+               send itself has to be a POST: the picker there does it once the
+               user has said who to. Signed in only, and never your own profile —
+               sharing yourself with someone is a link, not a card.
+
+               The handle, not share_url: the message carries an account, and the
+               API resolves it through the same visibility gate as everything else
+               so a share card cannot hand out a profile the recipient is blocked
+               from seeing. #}
+            {% if current_user and current_user.username != profile_user.username %}
+            <a href="/messages?share_user={{ profile_user.username }}"
+               class="glass font-semibold rounded-full py-3 text-sm flex items-center justify-center gap-2 hover-card mt-3">
+                <span class="material-symbols-outlined text-[19px]">send</span> Send in a message
+            </a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- ---------- Followers / Following ---------- -->
+<div id="peopleSheet" class="overlay" role="dialog" aria-modal="true" aria-labelledby="peopleSheetTitle">
+    <div class="sheet glass w-full sm:max-w-md rounded-t-[20px] sm:rounded-[20px] overflow-hidden shadow-card flex flex-col max-h-[85vh]">
+        <div class="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
+            <h3 id="peopleSheetTitle" class="font-display text-lg font-bold">Followers</h3>
+            <button type="button" data-close-sheet aria-label="Close"
+                    class="w-9 h-9 rounded-full glass flex items-center justify-center">
+                <span class="material-symbols-outlined text-[20px]">close</span>
+            </button>
+        </div>
+        <div class="px-5 pb-3 shrink-0">
+            <div class="relative">
+                <span class="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-muted text-[19px] pointer-events-none" aria-hidden="true">search</span>
+                <input id="peopleFilter" type="text" placeholder="Search this list…" autocomplete="off"
+                       aria-label="Filter this list" aria-controls="peopleList"
+                       class="w-full bg-card border border-border rounded-full pl-11 pr-4 py-2.5 text-sm outline-none focus:border-primary transition-colors">
+            </div>
+        </div>
+        <div id="peopleList" class="flex-auto overflow-y-auto px-3 pb-2 space-y-1" aria-live="polite"></div>
+        <div class="px-5 pb-[calc(16px+var(--safe-b))] sm:pb-4 shrink-0">
+            <button type="button" id="peopleMoreBtn"
+                    class="hidden w-full glass rounded-full py-2.5 text-sm font-semibold hover-card">Load more</button>
+        </div>
+    </div>
+</div>
+
+{% if is_own_profile %}
+<!-- ---------- Profile photo (POST|DELETE /api/users/me/avatar) ----------
+     The upload is server-side signed: the file goes to CartFlow, which signs and
+     forwards it to Cloudinary, so no API secret ever reaches this page.
+
+     The preview is a local blob URL — nothing is uploaded until Save, so picking
+     the wrong photo costs nothing. When the server has no Cloudinary credentials
+     the sheet says so plainly instead of offering a control that would 503. -->
+<div id="photoSheet" class="overlay" role="dialog" aria-modal="true" aria-labelledby="photoSheetTitle">
+    <div class="sheet glass w-full sm:max-w-md rounded-t-[20px] sm:rounded-[20px] overflow-hidden shadow-card">
+        <div class="flex items-center justify-between px-5 pt-5 pb-3">
+            <h3 id="photoSheetTitle" class="font-display text-lg font-bold">Profile photo</h3>
+            <button type="button" data-close-sheet aria-label="Close"
+                    class="w-9 h-9 rounded-full glass flex items-center justify-center">
+                <span class="material-symbols-outlined text-[20px]">close</span>
+            </button>
+        </div>
+
+        <div class="px-5 pb-[calc(20px+var(--safe-b))] sm:pb-5">
+            <div class="flex flex-col items-center text-center">
+                {# The live preview target. Starts as whatever is on the profile
+                   now — the photo, or the default picture at the same size. #}
+                <div id="photoPreviewBox" class="w-28 h-28 rounded-3xl overflow-hidden shadow-card ring-4 ring-[var(--c-surface)]">
+                    {{ avatar(profile_user.display_name, profile_user.username,
+                              "w-28 h-28", "rounded-3xl", "", "text-3xl",
+                              src=avatar_src(profile_user, "lg")) }}
+                </div>
+
+                {% if media_enabled %}
+                <p id="photoHint" class="caption-text text-xs mt-3 leading-relaxed max-w-[16rem]">
+                    JPG, PNG, WebP or HEIC, up to 5&nbsp;MB. Square photos look best — anything else is centred and cropped.
+                </p>
+
+                {# A styled <label> for the input, not a button that clicks it:
+                   the native picker opens from the label without any JS. #}
+                <label for="photoFile"
+                       class="glass mt-4 w-full rounded-full py-3 text-sm font-semibold hover-card flex items-center justify-center gap-2 cursor-pointer">
+                    <span class="material-symbols-outlined text-[19px]" aria-hidden="true">image</span>
+                    Choose a photo
+                </label>
+                <input id="photoFile" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*" class="sr-only">
+
+                <p id="photoError" class="text-sm text-danger mt-3 hidden" role="alert"></p>
+
+                <div class="w-full flex gap-3 mt-4">
+                    {% if avatar_src(profile_user) %}
+                    <button type="button" id="photoRemoveBtn"
+                            class="glass flex-1 font-semibold rounded-full py-3 text-sm hover-card text-danger">Remove</button>
+                    {% endif %}
+                    <button type="button" id="photoSaveBtn" disabled
+                            class="btn-glow flex-1 bg-primary text-background font-bold rounded-full py-3 text-sm disabled:opacity-40">Save photo</button>
+                </div>
+
+                {% else %}
+                {# Honest, not hidden: the account is fine, the server just has no
+                   image host configured. Nothing here pretends to accept a file. #}
+                <div class="w-full mt-4 rounded-2xl border border-accent/40 bg-accent/10 p-4 text-left">
+                    <p class="text-sm font-bold flex items-center gap-2">
+                        <span class="material-symbols-outlined text-[19px] text-accent" aria-hidden="true">cloud_off</span>
+                        Photo uploads aren't set up yet
+                    </p>
+                    <p class="caption-text text-xs mt-2 leading-relaxed">
+                        This CartFlow server has no image host configured, so photos can't be stored.
+                        Your profile keeps its generated avatar until it is.
+                    </p>
+                </div>
+                {% if avatar_src(profile_user) %}
+                {# They uploaded one while it WAS configured. Taking it down must
+                   still work, so this button stays. #}
+                <button type="button" id="photoRemoveBtn"
+                        class="glass w-full mt-3 font-semibold rounded-full py-3 text-sm hover-card text-danger">Remove current photo</button>
+                {% endif %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ---------- Edit profile (PATCH /api/users/me) ----------
+     Deliberately the SHORT form: the name people see and the bio, which are the
+     two things you'd change while looking at your own profile. The endpoint also
+     accepts `username` and `full_name`, but those live in Settings → Identity —
+     one changes your URL and the other is private, and neither belongs behind a
+     one-tap sheet on a public page. -->
+<div id="editSheet" class="overlay" role="dialog" aria-modal="true" aria-labelledby="editSheetTitle">
+    <div class="sheet glass w-full sm:max-w-md rounded-t-[20px] sm:rounded-[20px] overflow-hidden shadow-card">
+        <div class="flex items-center justify-between px-5 pt-5 pb-3">
+            <h3 id="editSheetTitle" class="font-display text-lg font-bold">Edit profile</h3>
+            <button type="button" data-close-sheet aria-label="Close"
+                    class="w-9 h-9 rounded-full glass flex items-center justify-center">
+                <span class="material-symbols-outlined text-[20px]">close</span>
+            </button>
+        </div>
+        <form id="editForm" class="px-5 pb-[calc(20px+var(--safe-b))] sm:pb-5 space-y-4" novalidate>
+            <div>
+                <label for="editName" class="block text-sm font-semibold mb-1.5">Name</label>
+                <input id="editName" name="display_name" type="text" maxlength="150" required
+                       value="{{ profile_user.display_name }}" autocomplete="name"
+                       class="input w-full rounded-2xl px-4 py-3 text-sm">
+                <p class="caption-text text-xs mt-1.5">Shown under your handle. Doesn't have to be unique.</p>
+            </div>
+            <div>
+                <div class="flex items-center justify-between mb-1.5">
+                    <label for="editBio" class="text-sm font-semibold">Bio</label>
+                    <span id="bioCount" class="text-xs text-muted">0/500</span>
+                </div>
+                <textarea id="editBio" name="bio" rows="4" maxlength="500"
+                          placeholder="What are you into? #hashtags and @mentions work here."
+                          class="input w-full rounded-2xl px-4 py-3 text-sm resize-none">{{ profile_user.bio or '' }}</textarea>
+            </div>
+            <p id="editError" class="text-sm text-danger hidden" role="alert"></p>
+            <div class="flex gap-3 pt-1">
+                <button type="button" data-close-sheet class="glass flex-1 font-semibold rounded-full py-3 text-sm hover-card">Cancel</button>
+                <button type="submit" id="editSaveBtn" class="btn-glow flex-1 bg-primary text-background font-bold rounded-full py-3 text-sm">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block extra_style %}
+
+/* The header's affiliation line. Each item after the first gets its own `·`, so
+   the template can drop any of business / state / category / school / joined
+   without leaving a dangling separator behind — which is the whole reason the
+   dots are here and not typed between the items. */
+.meta-line > *:not(:first-child)::before{ content:"·"; margin-inline-end:.4rem; opacity:.55; }
+
+
+/* Sheets. Styles are per-page blocks rather than shared, so the overlay classes
+   Discover also uses are re-declared here — with one difference: these slide up
+   from the BOTTOM on phones (a thumb-reachable native sheet) and only become
+   centred cards from sm+. */
+.overlay{ position:fixed; inset:0; z-index:80; background:rgba(3,8,16,.72); display:flex; align-items:flex-end; justify-content:center; opacity:0; pointer-events:none; transition:opacity .25s ease; }
+.overlay.open{ opacity:1; pointer-events:auto; }
+.overlay .sheet{ transform:translateY(26px); transition:transform .3s cubic-bezier(.2,.8,.2,1); }
+.overlay.open .sheet{ transform:translateY(0); }
+@media (min-width:640px){
+    .overlay{ align-items:center; }
+    .overlay .sheet{ transform:translateY(14px) scale(.985); }
+    .overlay.open .sheet{ transform:translateY(0) scale(1); }
+}
+
+/* Sheet list row — used by the ⋯ sheet. Declared once here instead of repeating
+   nine Tailwind class strings in the markup. */
+.sheet-row{ width:100%; display:flex; align-items:center; gap:.75rem; text-align:left; padding:.75rem; border-radius:1rem; transition:background .15s ease; }
+.sheet-row:hover{ background:var(--c-glass); }
+.sheet-row-icon{ width:2.25rem; height:2.25rem; border-radius:.75rem; background:var(--c-card); border:1px solid var(--c-border); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+
+/* Tab underline transition — the active class swap is done in JS. */
+.profile-tab{ transition:color .2s ease, border-color .2s ease; }
+
+{% endblock %}
+
+{% block extra_script %}
+{# base.html renders this block bare (it is NOT wrapped in a <script> tag), so
+   the tag belongs here — the same way home.html and discover.html do it. #}
+<script>
+
+/* ===================== PROFILE =====================
+   Everything here talks to real endpoints:
+     POST|DELETE /api/users/{username}/follow
+     GET         /api/users/{username}/followers|following
+     PATCH       /api/users/me
+     POST        /api/auth/business/upgrade
+     POST        /api/auth/graduation
+     POST        /api/auth/logout
+   Helpers (getJSON / postJSON / patchJSON / delJSON / errorMessage / setLoading /
+   NG_STATES) come from static/js/cartflow-forms.js, loaded by base.html. */
+
+const PROFILE_HANDLE = {{ profile_user.username | tojson }};
+const PROFILE_NAME   = {{ profile_user.display_name | tojson }};
+const SHARE_URL      = {{ share_url | tojson }};
+const IS_OWN         = {{ 'true' if is_own_profile else 'false' }};
+const SIGNED_IN      = {{ 'true' if current_user else 'false' }};
+
+/* ---- back ----
+   history.back() only if there IS history: a profile opened from a shared link
+   is the first entry in the tab, and a back button that does nothing is worse
+   than one that goes home. */
+document.getElementById('profileBack').addEventListener('click', () => {
+    if (window.history.length > 1) window.history.back();
+    else window.location.href = '/';
+});
+
+/* ---- sheets ----
+   One delegated listener for every open/close trigger, so sheets added later
+   need no JS. Sheet ids are template literals we control; no user data is ever
+   interpolated into markup here. */
+function openSheet(id){
+    const el = document.getElementById(id);
+    if (!el) return;
+    document.querySelectorAll('.overlay.open').forEach(o => { if (o !== el) o.classList.remove('open'); });
+    el.classList.add('open');
+    const focusable = el.querySelector('input, textarea, button');
+    if (focusable && window.matchMedia('(min-width:640px)').matches) focusable.focus();
+}
+function closeSheets(){ document.querySelectorAll('.overlay.open').forEach(o => o.classList.remove('open')); }
+
+document.addEventListener('click', (e) => {
+    const opener = e.target.closest('[data-open-sheet]');
+    if (opener){
+        if (opener.dataset.people) peopleMode = opener.dataset.people;
+        openSheet(opener.dataset.openSheet);
+        if (opener.dataset.people) loadPeople(true);
+        return;
+    }
+    if (e.target.closest('[data-close-sheet]')) closeSheets();
+});
+document.querySelectorAll('.overlay').forEach(o => {
+    o.addEventListener('click', (e) => { if (e.target === o) o.classList.remove('open'); });
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheets(); });
+
+/* Deep links into a sheet. The create sheet in base.html sends "Edit your
+   profile" to /@handle#edit, so the row lands on the editor rather than dropping
+   you on the page to hunt for the ⋯ button. openSheet() no-ops on an id that
+   isn't in the document, and #edit/#photo only render on your OWN profile — so
+   /@someone-else#edit opens nothing, which is the correct outcome without needing
+   a check here. There is no #sell any more: starting to sell lives on /settings. */
+const SHEET_HASHES = { edit: 'editSheet', photo: 'photoSheet', share: 'shareSheet' };
+const hashSheet = SHEET_HASHES[location.hash.slice(1)];
+if (hashSheet) openSheet(hashSheet);
+
+/* ---- tabs ----
+   Guarded: the strip isn't rendered when there is only one tab, so on a
+   customer's profile seen by a visitor this element genuinely doesn't exist. */
+const elTabs = document.getElementById('profileTabs');
+if (elTabs) elTabs.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-tab]');
+    if (!btn) return;
+    document.querySelectorAll('.profile-tab').forEach(t => {
+        const on = t === btn;
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+        t.classList.toggle('border-primary', on);
+        t.classList.toggle('text-primary', on);
+        t.classList.toggle('border-transparent', !on);
+        t.classList.toggle('text-muted', !on);
+    });
+    document.querySelectorAll('.profile-panel').forEach(p => {
+        p.classList.toggle('hidden', p.id !== 'panel-' + btn.dataset.tab);
+    });
+    btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+});
+
+/* ---- follow / unfollow ----
+   `data-following` on the button is the state, seeded server-side from
+   stats.is_following so a reload is authoritative. Both verbs are idempotent
+   server-side, so a double tap can't desync the count: every response carries
+   the real follower_count and we render THAT, never an increment. */
+const elFollow = document.getElementById('followBtn');
+const elFollowerCount = document.getElementById('followerCount');
+
+function paintFollow(following){
+    if (!elFollow) return;
+    elFollow.dataset.following = following ? 'true' : 'false';
+    elFollow.querySelector('#followLabel').textContent = following ? 'Following' : 'Follow';
+    elFollow.querySelector('.material-symbols-outlined').textContent = following ? 'check' : 'person_add';
+    elFollow.classList.toggle('glass', following);
+    elFollow.classList.toggle('border', following);
+    elFollow.classList.toggle('border-border', following);
+    elFollow.classList.toggle('font-semibold', following);
+    elFollow.classList.toggle('btn-glow', !following);
+    elFollow.classList.toggle('bg-primary', !following);
+    elFollow.classList.toggle('text-background', !following);
+    elFollow.classList.toggle('font-bold', !following);
+}
+
+if (elFollow){
+    elFollow.addEventListener('click', async () => {
+        const wasFollowing = elFollow.dataset.following === 'true';
+        setLoading(elFollow, true);
+        /* Optimistic: the button flips immediately (a follow that waits for the
+           network feels broken on mobile), and reverts if the call fails. */
+        paintFollow(!wasFollowing);
+        try {
+            const url = '/api/users/' + encodeURIComponent(PROFILE_HANDLE) + '/follow';
+            const res = wasFollowing ? await delJSON(url) : await postJSON(url);
+            paintFollow(res.following);
+            if (elFollowerCount) elFollowerCount.textContent = Number(res.follower_count).toLocaleString();
+        } catch (err){
+            paintFollow(wasFollowing);
+            if (err.status === 401){
+                showToast('Log in to follow people');
+                window.location.href = '/login';
+                return;
+            }
+            showToast(errorMessage(err, "That didn't go through. Try again."));
+        } finally {
+            setLoading(elFollow, false);
+        }
+    });
+}
+
+/* (The Message button used to live here as a toast handler. It is a plain link to
+   /messages now — see the markup — so there is no JS left to attach.) */
+
+/* ---- followers / following sheet ----
+   Paged from the real API. The list is annotated per row with the VIEWER's own
+   follow state (is_following / is_self) by the service, so each row's button
+   starts correct instead of always reading "Follow". */
+const PEOPLE_LIMIT = 30;
+let peopleMode = 'followers';
+let peopleOffset = 0;
+let peopleTotal = 0;
+let peopleRows = [];
+
+const elPeopleList  = document.getElementById('peopleList');
+const elPeopleTitle = document.getElementById('peopleSheetTitle');
+const elPeopleMore  = document.getElementById('peopleMoreBtn');
+const elPeopleFilter = document.getElementById('peopleFilter');
+
+/* The avatar macro is server-side, so JS-built rows need the same picture.
+   `avatarHue` mirrors `_avatar_hue` in app/routers/pages.py — keep them in step,
+   or the same account gets a different cover colour in a sheet than in the
+   header. It iterates code points, exactly like the Python. */
+function avatarHue(seed){
+    let h = 0;
+    for (const ch of String(seed || '')) h = (h * 31 + ch.codePointAt(0)) % 360;
+    return h;
+}
+
+function personRow(p){
+    /* Signed out there is nobody to follow AS, so the row carries no button
+       rather than one that 401s. is_self / is_following come annotated from the
+       service, so the button starts in the right state. */
+    let action = '';
+    if (p.is_self){
+        action = '<span class="text-xs text-muted font-semibold px-3 shrink-0">You</span>';
+    } else if (SIGNED_IN){
+        action = '<button type="button" data-act="follow" data-username="' + esc(p.username) +
+                 '" data-following="' + (p.is_following ? 'true' : 'false') + '" class="' +
+                 (p.is_following ? 'glass border border-border' : 'bg-primary text-background') +
+                 ' text-xs font-bold rounded-full px-4 py-2 shrink-0">' +
+                 (p.is_following ? 'Following' : 'Follow') + '</button>';
+    }
+    /* avatar_url is on PublicUserOut, so these rows get the real photo when the
+       account has one — the silhouette is the default, not a failure. It is
+       base.html's #cf-avatar symbol, the same one the avatar() macro clones. */
+    const box = 'w-11 h-11 rounded-2xl shrink-0';
+    let pic;
+    if (p.avatar_url){
+        pic = '<img src="' + esc(p.avatar_url) + '" alt="" loading="lazy" decoding="async" ' +
+              'class="' + box + ' object-cover bg-card" aria-hidden="true">';
+    } else {
+        pic = '<svg class="' + box + ' overflow-hidden" aria-hidden="true" focusable="false">' +
+              '<use href="#cf-avatar"/></svg>';
+    }
+    /* Handle first, display name under it — the same order the profile header
+       uses, and for the same reason: only the handle is unique. */
+    return '' +
+    '<div class="people-row flex items-center gap-3 p-2 rounded-2xl" data-search="' + esc((p.display_name + ' ' + p.username).toLowerCase()) + '">' +
+        '<a href="/@' + encodeURIComponent(p.username) + '" class="flex items-center gap-3 min-w-0 flex-1">' +
+            pic +
+            '<span class="min-w-0">' +
+                '<span class="block text-sm font-semibold truncate">@' + esc(p.username) +
+                    (p.is_seller ? ' <span class="material-symbols-outlined text-[14px] text-primary align-middle" title="Seller">storefront</span>' : '') +
+                '</span>' +
+                '<span class="block text-xs text-muted truncate">' + esc(p.display_name) +
+                    (p.organization_name ? ' · ' + esc(p.organization_name) : '') + '</span>' +
+            '</span>' +
+        '</a>' + action +
+    '</div>';
+}
+
+function renderPeople(){
+    if (!peopleRows.length){
+        elPeopleList.innerHTML =
+            '<p class="text-center caption-text text-sm py-10">' +
+            (peopleMode === 'followers'
+                ? (IS_OWN ? 'No followers yet. Share your profile to get started.' : 'No followers yet.')
+                : (IS_OWN ? "You aren't following anyone yet." : 'Not following anyone yet.')) +
+            '</p>';
+    } else {
+        elPeopleList.innerHTML = peopleRows.map(personRow).join('');
+        window.cfParseEmoji && window.cfParseEmoji(elPeopleList);
+    }
+    elPeopleMore.classList.toggle('hidden', peopleRows.length >= peopleTotal);
+    applyPeopleFilter();
+}
+
+async function loadPeople(reset){
+    if (reset){
+        peopleOffset = 0; peopleTotal = 0; peopleRows = [];
+        elPeopleFilter.value = '';
+        elPeopleTitle.textContent = peopleMode === 'followers' ? 'Followers' : 'Following';
+        elPeopleList.innerHTML = '<div class="space-y-2 py-2">' +
+            '<div class="skeleton h-14 rounded-2xl"></div><div class="skeleton h-14 rounded-2xl"></div><div class="skeleton h-14 rounded-2xl"></div></div>';
+    }
+    try {
+        const res = await getJSON('/api/users/' + encodeURIComponent(PROFILE_HANDLE) + '/' + peopleMode +
+                                  '?limit=' + PEOPLE_LIMIT + '&offset=' + peopleOffset);
+        peopleTotal = res.total;
+        peopleRows = peopleRows.concat(res.items);
+        peopleOffset += res.items.length;
+        renderPeople();
+    } catch (err){
+        elPeopleList.innerHTML = '<p class="text-center text-sm text-danger py-10">' +
+            esc(errorMessage(err, "Couldn't load this list.")) + '</p>';
+    }
+}
+
+elPeopleMore.addEventListener('click', () => loadPeople(false));
+
+/* Filters only what has been LOADED — the API has no search parameter, and
+   pretending otherwise would silently hide people who are simply on a later
+   page. "Load more" then filter is the honest order. */
+function applyPeopleFilter(){
+    const q = elPeopleFilter.value.trim().toLowerCase();
+    let shown = 0;
+    elPeopleList.querySelectorAll('.people-row').forEach(row => {
+        const hit = !q || row.dataset.search.includes(q);
+        row.classList.toggle('hidden', !hit);
+        if (hit) shown++;
+    });
+    const note = document.getElementById('peopleNoMatch');
+    if (note) note.remove();
+    if (q && shown === 0 && peopleRows.length){
+        const p = document.createElement('p');
+        p.id = 'peopleNoMatch';
+        p.className = 'text-center caption-text text-sm py-8';
+        p.textContent = 'No one here matches "' + q + '"' + (peopleRows.length < peopleTotal ? ' — try loading more.' : '.');
+        elPeopleList.appendChild(p);
+    }
+}
+elPeopleFilter.addEventListener('input', debounce(applyPeopleFilter, 120));
+
+/* Row follow buttons: data-* + this ONE delegated listener. Never an inline
+   onclick with an interpolated value — esc() writes &#39; for an apostrophe and
+   the HTML parser turns it back into a real quote before the JS compiles, so an
+   interpolated display name would break (and, once user-supplied, inject). */
+elPeopleList.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-act="follow"]');
+    if (!btn) return;
+    const handle = btn.dataset.username;
+    const wasFollowing = btn.dataset.following === 'true';
+    setLoading(btn, true);
+    try {
+        const url = '/api/users/' + encodeURIComponent(handle) + '/follow';
+        const res = wasFollowing ? await delJSON(url) : await postJSON(url);
+        btn.dataset.following = res.following ? 'true' : 'false';
+        btn.textContent = res.following ? 'Following' : 'Follow';
+        btn.classList.toggle('glass', res.following);
+        btn.classList.toggle('border', res.following);
+        btn.classList.toggle('border-border', res.following);
+        btn.classList.toggle('bg-primary', !res.following);
+        btn.classList.toggle('text-background', !res.following);
+        /* Keep the cached row in step so a re-render (filter/load more) doesn't
+           snap the button back to its original state. */
+        const row = peopleRows.find(p => p.username === handle);
+        if (row) row.is_following = res.following;
+        /* Your own Following count changes when YOU follow from this sheet. */
+        if (IS_OWN && peopleMode === 'following'){
+            const el = document.getElementById('followingCount');
+            if (el) el.textContent = Number(Math.max(0, Number(el.textContent.replace(/,/g, '')) + (res.following ? 1 : -1))).toLocaleString();
+        }
+    } catch (err){
+        if (err.status === 401){ window.location.href = '/login'; return; }
+        showToast(errorMessage(err, "That didn't go through."));
+    } finally {
+        setLoading(btn, false);
+    }
+});
+
+/* ---- share ---- */
+async function copyShareUrl(){
+    try {
+        await navigator.clipboard.writeText(SHARE_URL);
+        showToast('Link copied');
+    } catch (err){
+        /* clipboard is unavailable over plain http on some browsers — the URL is
+           already on screen in the sheet, so say that instead of failing mute. */
+        showToast('Copy the link shown above');
+    }
+}
+document.getElementById('shareCopyBtn').addEventListener('click', copyShareUrl);
+document.getElementById('shareNativeBtn').addEventListener('click', async () => {
+    if (navigator.share){
+        try { await navigator.share({ title: PROFILE_NAME + ' on CartFlow', url: SHARE_URL }); }
+        catch (err){ /* user dismissed the OS sheet — not an error */ }
+    } else {
+        copyShareUrl();
+    }
+});
+const elCopyRow = document.getElementById('copyLinkRow');
+if (elCopyRow) elCopyRow.addEventListener('click', () => { copyShareUrl(); closeSheets(); });
+const elReport = document.getElementById('reportRow');
+if (elReport) elReport.addEventListener('click', () => {
+    closeSheets();
+    showToast('Reporting arrives with moderation — nothing was filed');
+});
+
+{% if is_own_profile %}
+/* ===================== OWNER-ONLY =====================
+   This whole block is only RENDERED for the owner — a visitor's page has no
+   edit form, no upgrade call and no logout button in its source at all. */
+
+/* ---- edit profile (PATCH /api/users/me) ----
+   Only changed fields are sent. That matters: the API treats an ABSENT key as
+   "leave alone" and an empty bio as "clear it", so sending the whole form every
+   time would make an untouched field indistinguishable from a cleared one. */
+const elEditForm = document.getElementById('editForm');
+const elEditName = document.getElementById('editName');
+const elEditBio  = document.getElementById('editBio');
+const elBioCount = document.getElementById('bioCount');
+const elEditError = document.getElementById('editError');
+const originalName = elEditName.value;
+const originalBio  = elEditBio.value;
+
+function paintBioCount(){ elBioCount.textContent = elEditBio.value.length + '/500'; }
+elEditBio.addEventListener('input', paintBioCount);
+paintBioCount();
+
+elEditForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    elEditError.classList.add('hidden');
+    const payload = {};
+    if (elEditName.value !== originalName) payload.display_name = elEditName.value;
+    if (elEditBio.value !== originalBio)   payload.bio = elEditBio.value;
+    if (!Object.keys(payload).length){ closeSheets(); return; }
+
+    const btn = document.getElementById('editSaveBtn');
+    setLoading(btn, true);
+    try {
+        const user = await patchJSON('/api/users/me', payload);
+        /* Reload rather than patch the header: display_name feeds the header,
+           the sidebar card, the top-bar name and the <title>. A server render
+           keeps all of them consistent in one step. */
+        showToast('Profile updated');
+        window.location.reload();
+    } catch (err){
+        if (err.status === 401){ window.location.href = '/login'; return; }
+        elEditError.textContent = errorMessage(err, "Couldn't save that.");
+        elEditError.classList.remove('hidden');
+    } finally {
+        setLoading(btn, false);
+    }
+});
+
+/* ---- profile photo (POST | DELETE /api/users/me/avatar) ----
+   Two-step on purpose: pick, look at it, then Save. The preview is a local
+   object URL, so choosing is free and nothing hits the network until Save.
+   The limits mirror app/services/avatar.py — the server still enforces them,
+   this only saves the user a doomed 5 MB upload. */
+const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
+const elPhotoFile   = document.getElementById('photoFile');
+const elPhotoSave   = document.getElementById('photoSaveBtn');
+const elPhotoRemove = document.getElementById('photoRemoveBtn');
+const elPhotoBox    = document.getElementById('photoPreviewBox');
+const elPhotoError  = document.getElementById('photoError');
+let photoPreviewURL = null;
+
+function photoFail(msg){
+    if (!elPhotoError) return;
+    elPhotoError.textContent = msg;
+    elPhotoError.classList.remove('hidden');
+}
+
+if (elPhotoFile){
+    elPhotoFile.addEventListener('change', () => {
+        elPhotoError.classList.add('hidden');
+        const file = elPhotoFile.files && elPhotoFile.files[0];
+        elPhotoSave.disabled = !file;
+        if (!file) return;
+
+        if (!file.type.startsWith('image/')){
+            elPhotoFile.value = '';
+            elPhotoSave.disabled = true;
+            photoFail('That file isn’t an image.');
+            return;
+        }
+        if (file.size > AVATAR_MAX_BYTES){
+            elPhotoFile.value = '';
+            elPhotoSave.disabled = true;
+            photoFail('That photo is over 5 MB. Try a smaller one.');
+            return;
+        }
+        /* Revoke the previous blob before replacing it — picking six photos in a
+           row shouldn't leak six of them for the life of the page. */
+        if (photoPreviewURL) URL.revokeObjectURL(photoPreviewURL);
+        photoPreviewURL = URL.createObjectURL(file);
+        elPhotoBox.innerHTML = '';
+        const img = document.createElement('img');
+        img.src = photoPreviewURL;
+        img.alt = '';
+        img.className = 'w-28 h-28 object-cover';
+        img.setAttribute('aria-hidden', 'true');
+        elPhotoBox.appendChild(img);
+    });
+
+    elPhotoSave.addEventListener('click', async () => {
+        const file = elPhotoFile.files && elPhotoFile.files[0];
+        if (!file) return;
+        elPhotoError.classList.add('hidden');
+        setLoading(elPhotoSave, true);
+        try {
+            /* Multipart, not JSON: the file goes to CartFlow, which signs the
+               upload to Cloudinary server-side. No API secret is on this page. */
+            const body = new FormData();
+            body.append('file', file);
+            const res = await fetch('/api/users/me/avatar', {
+                method: 'POST', body, credentials: 'same-origin',
+            });
+            if (!res.ok){
+                if (res.status === 401){ window.location.href = '/login'; return; }
+                let detail = '';
+                try { detail = (await res.json()).detail || ''; } catch (e){ /* not JSON */ }
+                photoFail(detail || "Couldn't upload that photo.");
+                return;
+            }
+            showToast('Photo updated');
+            /* Reload: the avatar renders in the header, the sidebar card and the
+               top bar. One server render keeps all three in step. */
+            window.location.reload();
+        } catch (err){
+            photoFail('Network trouble — try again.');
+        } finally {
+            setLoading(elPhotoSave, false);
+        }
+    });
+}
+
+if (elPhotoRemove){
+    elPhotoRemove.addEventListener('click', async () => {
+        setLoading(elPhotoRemove, true);
+        try {
+            const res = await fetch('/api/users/me/avatar', {
+                method: 'DELETE', credentials: 'same-origin',
+            });
+            if (res.status === 401){ window.location.href = '/login'; return; }
+            if (!res.ok){ photoFail("Couldn't remove that photo."); return; }
+            showToast('Photo removed');
+            window.location.reload();
+        } catch (err){
+            photoFail('Network trouble — try again.');
+        } finally {
+            setLoading(elPhotoRemove, false);
+        }
+    });
+}
+
+/* ---- log out (POST /api/auth/logout) ----
+   Until this page existed there was NO way to sign out of CartFlow from the UI. */
+document.getElementById('logoutBtn').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    setLoading(btn, true);
+    try { await postJSON('/api/auth/logout', {}); } catch (err){ /* the cookie is cleared either way */ }
+    window.location.href = '/login';
+});
+{% endif %}
+
+window.cfParseEmoji && window.cfParseEmoji(document.body);
+</script>
+{% endblock %}

@@ -1,0 +1,687 @@
+{# Sign up (multi-persona), two-step flow.
+
+   STEP 1 — role chooser: four cards, one per persona. Picking one determines
+   which fields Step 2 asks for. Kept deliberately simple (four taps, plain
+   language) — the complexity lives behind the choice, not in front of it.
+
+     - Student          → Education-group school typeahead. Not a seller.
+     - Individual       → nothing extra (personal, stories-only account).
+     - Student Business → school typeahead AND business name + state. Stays a
+                          student (keeps campus) but can sell.
+     - Brand            → business name + state. A standalone business, no school.
+
+   STEP 2 — the tailored form: shared identity fields (name/username/email/
+   password) plus only the sections the chosen role needs, with a "Change"
+   affordance back to Step 1. Submits to POST /api/auth/signup with `role`.
+
+   Finish-signup mode (a NEW Google user landing on /signup?google=<token>):
+   pages.py verifies the token server-side and passes google_token/google_email/
+   google_name. Google gives us email+name but no role, so the user still starts
+   at Step 1. In that mode the email is locked, the password field is removed
+   (the account is passwordless), the name is prefilled, and the token rides
+   along in the payload — the POST re-verifies it.
+
+   Two live checks run while typing: username availability (advisory — the
+   unique index on users.username_normalized is the real guard) and, for the
+   school-affiliated roles, the organization typeahead. #}
+{% extends "auth_base.html" %}
+{% import "auth_macros.html" as ui %}
+
+{% set finish_google = google_token is not none %}
+
+{% block auth_title %}{% if finish_google %}Finish signing up{% else %}Create your account{% endif %}{% endblock %}
+{% block auth_sub %}{% if finish_google %}Choose how you'll use CartFlow to finish.{% else %}First, how will you use CartFlow?{% endif %}{% endblock %}
+
+{% block auth_body %}
+<!-- ============ STEP 1: role chooser ============ -->
+<div id="step1">
+  <div class="role-cards" role="list">
+    <button type="button" class="role-card" data-role="student" role="listitem">
+      <span class="role-ic"><span class="material-symbols-outlined" aria-hidden="true">school</span></span>
+      <span class="role-name">Student</span>
+      <span class="role-desc">Shop and connect on campus</span>
+    </button>
+
+    <button type="button" class="role-card" data-role="individual" role="listitem">
+      <span class="role-ic"><span class="material-symbols-outlined" aria-hidden="true">person</span></span>
+      <span class="role-name">Individual</span>
+      <span class="role-desc">Shop, follow, and share stories</span>
+    </button>
+
+    <button type="button" class="role-card" data-role="student_business" role="listitem">
+      <span class="role-ic"><span class="material-symbols-outlined" aria-hidden="true">storefront</span></span>
+      <span class="role-name">Student Business</span>
+      <span class="role-desc">Sell while you're still on campus</span>
+    </button>
+
+    <button type="button" class="role-card" data-role="brand" role="listitem">
+      <span class="role-ic"><span class="material-symbols-outlined" aria-hidden="true">business_center</span></span>
+      <span class="role-name">Brand</span>
+      <span class="role-desc">A business or brand that sells</span>
+    </button>
+  </div>
+
+  {% if google_oauth and not finish_google %}
+  <div class="or-divider">or</div>
+  {{ ui.google_button(label="Sign up with Google") }}
+  {% endif %}
+
+  <p class="auth-alt">Already have an account? <a href="/login">Log in</a></p>
+</div>
+
+<!-- ============ STEP 2: tailored form ============ -->
+<form id="signupForm" novalidate hidden
+      {% if finish_google %}data-google-token="{{ google_token }}"{% endif %}>
+
+  <!-- Chosen-role header. Shows the pick + a way back to Step 1. -->
+  <div class="role-chosen">
+    <span class="material-symbols-outlined" id="rc_icon" aria-hidden="true">school</span>
+    <span class="rc-name" id="rc_name">Student</span>
+    <button type="button" class="rc-change" id="rc_change">Change</button>
+  </div>
+
+  <!-- Set when a card is picked; posted as the `role` discriminator. -->
+  <input type="hidden" name="role" id="role" value="">
+
+  <div id="formAlert" class="alert alert-danger" role="alert" hidden></div>
+
+  {{ ui.textfield(
+       id="full_name", label="Full name", type="text",
+       autocomplete="name", icon="badge",
+       placeholder="Ada Lovelace", maxlength="120",
+       value=(google_name or "")) }}
+
+  <!-- Username, with a live availability check -->
+  <div class="field" id="usernameField">
+    <label class="field-label" for="username">Username</label>
+    <div class="control has-icon">
+      <span class="material-symbols-outlined lead-icon" aria-hidden="true">alternate_email</span>
+      <input class="input" id="username" name="username" type="text"
+             autocomplete="username" maxlength="30"
+             autocapitalize="none" autocorrect="off" spellcheck="false"
+             placeholder="adalovelace"
+             aria-describedby="usernameHint usernameStatus usernameError">
+    </div>
+
+    {# aria-live=polite, not assertive: the result should be announced when
+       the user pauses, not cut off whatever they're currently hearing. #}
+    <p class="status-line" id="usernameStatus" role="status" aria-live="polite" hidden>
+      <span class="material-symbols-outlined" aria-hidden="true"></span>
+      <span class="status-text"></span>
+    </p>
+
+    <p class="field-hint" id="usernameHint">
+      3–30 characters. A plain name like <strong>adalovelace</strong> is fine —
+      numbers and <code>. _ -</code> are allowed but not required.
+    </p>
+    <p class="field-error" id="usernameError" role="alert" hidden>
+      <span class="material-symbols-outlined" aria-hidden="true">error</span>
+      <span class="err-text"></span>
+    </p>
+  </div>
+
+  <!-- Email. Locked + pre-filled in finish-signup mode (Google-verified). -->
+  <div class="field" id="emailField">
+    <label class="field-label" for="email">Email</label>
+    <div class="control has-icon">
+      <span class="material-symbols-outlined lead-icon" aria-hidden="true">mail</span>
+      <input class="input" id="email" name="email" type="email"
+             autocomplete="email" inputmode="email" maxlength="255"
+             placeholder="you@email.com"
+             value="{{ google_email or '' }}"
+             {% if finish_google %}readonly{% endif %}
+             aria-describedby="emailHint emailError">
+    </div>
+    <p class="field-hint" id="emailHint">
+      {% if finish_google %}Verified with Google — you're all set.{% else %}We'll send a verification link here.{% endif %}
+    </p>
+    <p class="field-error" id="emailError" role="alert" hidden>
+      <span class="material-symbols-outlined" aria-hidden="true">error</span>
+      <span class="err-text"></span>
+    </p>
+  </div>
+
+  {# Password: omitted entirely in finish-signup mode — the account is
+     passwordless (identity proven by Google). #}
+  {% if not finish_google %}
+  <div class="field" id="passwordField">
+    <label class="field-label" for="password">Password</label>
+    <div class="control has-icon has-trail">
+      <span class="material-symbols-outlined lead-icon" aria-hidden="true">lock</span>
+      <input class="input" id="password" name="password" type="password"
+             autocomplete="new-password" minlength="8"
+             placeholder="At least 8 characters"
+             aria-describedby="passwordHint passwordError">
+      <button type="button" class="trail-btn" id="passwordToggle"
+              aria-label="Show password" aria-pressed="false">
+        <span class="material-symbols-outlined">visibility</span>
+      </button>
+    </div>
+
+    <div class="pw-meter" id="pwMeter" hidden>
+      <div class="pw-bar"><div class="pw-bar-fill"></div></div>
+      <span class="pw-label"></span>
+    </div>
+
+    <p class="field-hint" id="passwordHint">Use 8 or more characters.</p>
+    <p class="field-error" id="passwordError" role="alert" hidden>
+      <span class="material-symbols-outlined" aria-hidden="true">error</span>
+      <span class="err-text"></span>
+    </p>
+  </div>
+  {% endif %}
+
+  <!-- ============ school typeahead (student, student_business) ============ -->
+  <div id="studentSection" hidden>
+    <div class="field" id="org_searchField">
+      <label class="field-label" for="org_search">School or organization</label>
+      <div class="control has-icon">
+        <span class="material-symbols-outlined lead-icon" aria-hidden="true">school</span>
+        <input class="input" id="org_search" type="text" autocomplete="off"
+               role="combobox" aria-expanded="false" aria-controls="org_results"
+               aria-autocomplete="list"
+               placeholder="Start typing your school…"
+               aria-describedby="org_searchHint org_searchError">
+        <!-- Resolved selection; posted as organization_id. -->
+        <input type="hidden" id="organization_id" name="organization_id">
+
+        <div id="org_results" class="suggest-panel" role="listbox" hidden></div>
+      </div>
+
+      <!-- selected chip (replaces the hint once a pick is made) -->
+      <div id="org_selected" class="chip-selected" style="margin-top:8px;" hidden>
+        <span class="material-symbols-outlined" style="color:var(--brand);font-size:20px;">check_circle</span>
+        <span id="org_selected_name" style="flex:1;font-size:14px;font-weight:600;"></span>
+        <button type="button" id="org_clear" class="link-quiet"
+                style="background:none;border:0;font-size:12.5px;cursor:pointer;">change</button>
+      </div>
+
+      <!-- not-found branch -->
+      <div id="org_notfound" style="margin-top:8px;" hidden>
+        <p class="field-hint" style="margin-top:0;margin-bottom:8px;">
+          Can't find your school? Pick it from the directory, or ask us to add it —
+          you can still finish signing up either way.
+        </p>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">
+          <a href="/universities" class="btn btn-secondary btn-sm">
+            <span class="material-symbols-outlined" style="font-size:17px;">list</span>
+            <span class="btn-label">Browse directory</span>
+          </a>
+          <a id="request_link" href="/request-organization" class="btn btn-secondary btn-sm">
+            <span class="material-symbols-outlined" style="font-size:17px;">add_business</span>
+            <span class="btn-label">Request it</span>
+          </a>
+        </div>
+      </div>
+
+      <p class="field-hint" id="org_searchHint">Search all listed schools and organizations.</p>
+      <p class="field-error" id="org_searchError" role="alert" hidden>
+        <span class="material-symbols-outlined" aria-hidden="true">error</span>
+        <span class="err-text"></span>
+      </p>
+    </div>
+  </div>
+
+  <!-- ============ business: name + state (student_business, brand) ============ -->
+  <div id="businessSection" hidden>
+    {{ ui.textfield(
+         id="business_name", label="Business name", type="text",
+         icon="storefront", placeholder="Ada's Kitchen", maxlength="120",
+         hint="You can edit your business details later in the Business Hub.") }}
+
+    <div class="field" id="stateField">
+      <label class="field-label" for="state">State</label>
+      <div class="control">
+        <select class="input" id="state" name="state"
+                aria-describedby="stateHint stateError">
+          <option value="">Select your state…</option>
+        </select>
+      </div>
+      <p class="field-hint" id="stateHint">Where your business is based.</p>
+      <p class="field-error" id="stateError" role="alert" hidden>
+        <span class="material-symbols-outlined" aria-hidden="true">error</span>
+        <span class="err-text"></span>
+      </p>
+    </div>
+  </div>
+
+  <!-- ============ individual: nothing extra ============ -->
+  <div id="individualSection" hidden>
+    <p class="field-hint" style="margin-top:-4px;margin-bottom:16px;">
+      A personal account. You can shop, follow, and share stories.
+      Want to sell or post? You can start a business anytime from your profile.
+    </p>
+  </div>
+
+  <button type="submit" class="btn btn-primary" id="submitBtn" data-loading="false">
+    <span class="btn-label">{% if finish_google %}Finish signing up{% else %}Create account{% endif %}</span>
+  </button>
+
+  <p class="legal-note">
+    By creating an account you agree to our
+    <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.
+  </p>
+</form>
+
+<!-- success / pending panel (replaces everything) -->
+<div id="result_panel" hidden>
+  <div class="result-panel">
+    <div class="result-icon" id="result_icon_wrap">
+      <span class="material-symbols-outlined" id="result_icon">mark_email_read</span>
+    </div>
+    <h2 class="auth-title" style="font-size:21px;" id="result_title"></h2>
+    <p class="auth-sub" id="result_message" style="margin-bottom:20px;"></p>
+  </div>
+  <a href="/login" class="btn btn-secondary"><span class="btn-label">Back to log in</span></a>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+(function () {
+  const step1       = document.getElementById("step1");
+  const form        = document.getElementById("signupForm");
+  const alertEl     = document.getElementById("formAlert");
+  const submitBtn   = document.getElementById("submitBtn");
+  const authHeader  = document.getElementById("authHeader");
+  const subEl       = authHeader ? authHeader.querySelector(".auth-sub") : null;
+  const roleInput   = document.getElementById("role");
+
+  const usernameEl  = document.getElementById("username");
+  const statusEl    = document.getElementById("usernameStatus");
+
+  const searchInput = document.getElementById("org_search");
+  const results     = document.getElementById("org_results");
+  const hiddenId    = document.getElementById("organization_id");
+  const selected    = document.getElementById("org_selected");
+  const notfound    = document.getElementById("org_notfound");
+
+  // Finish-signup mode: the token lives on a data-attr, password field is absent.
+  const googleToken = form.dataset.googleToken || null;
+  const isFinishGoogle = googleToken !== null;
+
+  /* ============ ROLE CONFIG ============
+     One entry per card. `needsSchool` shows the school typeahead (student +
+     student_business); `needsBusiness` shows business name + state
+     (student_business + brand). These must match the SignupRole Literal and
+     the SignUpRequest validator in app/schemas/user.py. */
+  const ROLES = {
+    student: {
+      name: "Student", icon: "school", needsSchool: true, needsBusiness: false,
+      sub: "Tell us about you and your school.",
+    },
+    individual: {
+      name: "Individual", icon: "person", needsSchool: false, needsBusiness: false,
+      sub: "Just a few details to set up your account.",
+    },
+    student_business: {
+      name: "Student Business", icon: "storefront", needsSchool: true, needsBusiness: true,
+      sub: "Your details, your school, and your business.",
+    },
+    brand: {
+      name: "Brand", icon: "business_center", needsSchool: false, needsBusiness: true,
+      sub: "Your details and your business.",
+    },
+  };
+
+  const STEP1_SUB = isFinishGoogle
+    ? "Choose how you'll use CartFlow to finish."
+    : "First, how will you use CartFlow?";
+
+  const sections = {
+    student: document.getElementById("studentSection"),
+    business: document.getElementById("businessSection"),
+    individual: document.getElementById("individualSection"),
+  };
+
+  const CLEARABLE = ["full_name", "username", "email", "password",
+                     "org_search", "business_name", "state"];
+
+  // Password helpers only exist outside finish-signup mode.
+  if (!isFinishGoogle) {
+    bindPasswordToggle("password");
+    bindPasswordStrength("password", "pwMeter");
+  }
+
+  function currentRole() {
+    return roleInput.value || "student";
+  }
+
+  /* ============ STEP NAVIGATION ============ */
+
+  function goToStep2(role) {
+    const cfg = ROLES[role];
+    if (!cfg) return;
+    roleInput.value = role;
+
+    // Chosen-role header.
+    document.getElementById("rc_icon").textContent = cfg.icon;
+    document.getElementById("rc_name").textContent = cfg.name;
+
+    // Show only the sections this role needs.
+    sections.student.hidden = !cfg.needsSchool;
+    sections.business.hidden = !cfg.needsBusiness;
+    sections.individual.hidden = role !== "individual";
+
+    if (subEl) subEl.textContent = cfg.sub;
+
+    step1.hidden = true;
+    form.hidden = false;
+    CLEARABLE.forEach(clearFieldError);
+    alertEl.hidden = true;
+
+    // Focus the first thing that still needs input.
+    const nameEl = document.getElementById("full_name");
+    const focusEl = (isFinishGoogle && nameEl.value) ? usernameEl : nameEl;
+    focusEl.focus();
+  }
+
+  function goToStep1() {
+    form.hidden = true;
+    step1.hidden = false;
+    roleInput.value = "";
+    if (subEl) subEl.textContent = STEP1_SUB;
+    CLEARABLE.forEach(clearFieldError);
+    alertEl.hidden = true;
+  }
+
+  document.querySelectorAll(".role-card").forEach((card) => {
+    card.addEventListener("click", () => goToStep2(card.dataset.role));
+  });
+  document.getElementById("rc_change").addEventListener("click", goToStep1);
+
+  /* ============ STATE DROPDOWN (business) ============
+     NG_STATES is single-sourced in cartflow-forms.js. */
+  const stateSel = document.getElementById("state");
+  if (stateSel && typeof NG_STATES !== "undefined") {
+    NG_STATES.forEach((s) => {
+      const opt = document.createElement("option");
+      opt.value = s;
+      opt.textContent = s;
+      stateSel.appendChild(opt);
+    });
+  }
+
+  /* ============ USERNAME AVAILABILITY ============
+     Advisory. The unique index on users.username_normalized and the 409
+     from signup are the enforcement; this just spares the user a failed
+     submit. A stale in-flight response must never overwrite a newer one,
+     hence the sequence guard. */
+
+  let usernameOk = false;
+  let checkSeq = 0;
+
+  function setStatus(kind, icon, text) {
+    statusEl.className = "status-line " + kind;
+    statusEl.querySelector(".material-symbols-outlined").textContent = icon;
+    statusEl.querySelector(".status-text").textContent = text;
+    statusEl.hidden = false;
+  }
+
+  function clearStatus() {
+    statusEl.hidden = true;
+    usernameOk = false;
+  }
+
+  const checkUsername = debounce(async () => {
+    const value = usernameEl.value.trim();
+    clearFieldError("username");
+
+    if (value.length < 3) {
+      clearStatus();
+      return;
+    }
+
+    const seq = ++checkSeq;
+    setStatus("checking", "progress_activity", "Checking…");
+
+    try {
+      const res = await getJSON("/api/auth/check-username?username=" + encodeURIComponent(value));
+      if (seq !== checkSeq) return;      // a newer keystroke already won
+      if (res.available) {
+        usernameOk = true;
+        setStatus("ok", "check_circle", "@" + res.username + " is available");
+      } else {
+        usernameOk = false;
+        setStatus("bad", "cancel", res.reason || "That username isn't available.");
+      }
+    } catch (err) {
+      if (seq !== checkSeq) return;
+      /* A failed check is not a failed username — stay silent rather than
+         telling the user something is wrong with a name that may be fine. */
+      clearStatus();
+    }
+  }, 350);
+
+  usernameEl.addEventListener("input", () => {
+    usernameOk = false;
+    checkUsername();
+  });
+
+  /* ============ GOOGLE SIGN-UP ============
+     Rendered only when OAuth is configured and we're not already in finish-
+     signup mode. intent=signup so the callback routes a brand-new user to the
+     finish-signup step and a returning Google user straight into a session. */
+  const googleBtn = document.getElementById("googleBtn");
+  if (googleBtn) {
+    googleBtn.addEventListener("click", () => {
+      setLoading(googleBtn, true);
+      window.location.assign("/api/auth/google/login?intent=signup");
+    });
+  }
+
+  /* ============ ORGANIZATION TYPEAHEAD (school-affiliated roles) ============ */
+
+  // Free-typed name, used only if the user never picks a match — it becomes
+  // organization_name so the backend can file a request.
+  let typedName = "";
+
+  function hideResults() {
+    results.hidden = true;
+    searchInput.setAttribute("aria-expanded", "false");
+  }
+
+  function selectOrg(org) {
+    hiddenId.value = org.id;
+    document.getElementById("org_selected_name").textContent =
+      org.official_name + (org.short_name ? " (" + org.short_name + ")" : "");
+    selected.hidden = false;
+    notfound.hidden = true;
+    searchInput.value = org.official_name;
+    typedName = "";
+    clearFieldError("org_search");
+    hideResults();
+  }
+
+  document.getElementById("org_clear").addEventListener("click", () => {
+    hiddenId.value = "";
+    selected.hidden = true;
+    searchInput.value = "";
+    searchInput.focus();
+  });
+
+  const runSearch = debounce(async () => {
+    const q = searchInput.value.trim();
+    typedName = q;
+    hiddenId.value = "";              // typing invalidates a prior pick
+    selected.hidden = true;
+    clearFieldError("org_search");    // drop any stale "couldn't load" message
+
+    if (q.length < 2) {
+      hideResults();
+      notfound.hidden = true;
+      return;
+    }
+
+    try {
+      const orgs = await getJSON("/api/organizations/search?q=" + encodeURIComponent(q));
+      results.innerHTML = "";
+
+      if (!orgs.length) {
+        hideResults();
+        document.getElementById("request_link").href =
+          "/request-organization?name=" + encodeURIComponent(q);
+        notfound.hidden = false;
+        return;
+      }
+
+      notfound.hidden = true;
+      orgs.forEach((org) => {
+        /* A <button> rather than <li>: it's keyboard-focusable and
+           activates on Enter for free. */
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "suggest-item";
+        btn.setAttribute("role", "option");
+        btn.innerHTML =
+          '<span class="material-symbols-outlined" style="font-size:19px;color:var(--c-muted);">school</span>' +
+          '<span style="flex:1;">' +
+            '<span class="s-name">' + esc(org.official_name) + "</span>" +
+            (org.state ? '<span class="s-meta">' + esc(org.state) + "</span>" : "") +
+          "</span>";
+        btn.addEventListener("click", () => selectOrg(org));
+        results.appendChild(btn);
+      });
+
+      results.hidden = false;
+      searchInput.setAttribute("aria-expanded", "true");
+    } catch (err) {
+      /* A network drop or a server error must not look like "no results" —
+         that would wrongly nudge the user to request an org that exists. Show
+         a distinct, actionable line instead of silently rendering nothing. */
+      hideResults();
+      notfound.hidden = true;
+      setFieldError(
+        "org_search",
+        "Couldn't load schools just now — check your connection and try again."
+      );
+    }
+  }, 250);
+
+  searchInput.addEventListener("input", runSearch);
+  document.addEventListener("click", (e) => {
+    if (!results.contains(e.target) && e.target !== searchInput) hideResults();
+  });
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") hideResults();
+  });
+
+  // Deep link from a directory row: ?org_id=&org_name= — implies a student who
+  // already picked a school, so skip Step 1 straight into the student form.
+  const params = new URLSearchParams(location.search);
+  if (params.get("org_id")) {
+    goToStep2("student");
+    selectOrg({
+      id: params.get("org_id"),
+      official_name: params.get("org_name") || "Selected organization",
+      short_name: null,
+      state: null,
+    });
+  }
+
+  /* ============ SUBMIT ============ */
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    alertEl.hidden = true;
+    CLEARABLE.forEach(clearFieldError);
+
+    const role = currentRole();
+    const cfg = ROLES[role];
+    const payload = {
+      role: role,
+      full_name: document.getElementById("full_name").value.trim(),
+      username: usernameEl.value.trim(),
+      email: document.getElementById("email").value.trim(),
+    };
+
+    // Credential path: Google token (passwordless) OR a local password.
+    if (isFinishGoogle) {
+      payload.google_token = googleToken;
+    } else {
+      payload.password = document.getElementById("password").value;
+    }
+
+    let bad = false;
+    if (!payload.full_name) { setFieldError("full_name", "Enter your full name."); bad = true; }
+    if (payload.username.length < 3) { setFieldError("username", "Pick a username of at least 3 characters."); bad = true; }
+    if (!payload.email.includes("@")) { setFieldError("email", "Enter a valid email address."); bad = true; }
+    if (!isFinishGoogle && payload.password.length < 8) {
+      setFieldError("password", "Use at least 8 characters."); bad = true;
+    }
+
+    // Role-conditional fields — driven by the same flags that showed the sections.
+    if (cfg.needsSchool) {
+      if (hiddenId.value) {
+        payload.organization_id = hiddenId.value;
+      } else if (searchInput.value.trim().length >= 2) {
+        payload.organization_name = searchInput.value.trim();
+      } else {
+        setFieldError("org_search", "Choose your school or organization.");
+        bad = true;
+      }
+    }
+    if (cfg.needsBusiness) {
+      const bn = document.getElementById("business_name").value.trim();
+      const st = document.getElementById("state").value;
+      if (bn.length < 2) { setFieldError("business_name", "Enter your business name."); bad = true; }
+      else { payload.business_name = bn; }
+      if (!st) { setFieldError("state", "Select your state."); bad = true; }
+      else { payload.state = st; }
+    }
+
+    if (bad) return;
+
+    setLoading(submitBtn, true);
+    try {
+      const res = await postJSON("/api/auth/signup", payload);
+      showResult(res);
+    } catch (err) {
+      setLoading(submitBtn, false);
+      /* Prefer per-field placement; fall back to the banner only when the
+         error doesn't name a field the form knows about. */
+      const placed = applyFieldErrors(err, ["full_name", "username", "email",
+        "password", "organization_id", "organization_name", "business_name",
+        "state", "google_token"]);
+      if (!placed) {
+        const msg = errorMessage(err);
+        /* The 409 from a lost username race arrives as a plain message —
+           put it on the field that caused it. */
+        if (/username/i.test(msg)) {
+          setFieldError("username", msg);
+        } else {
+          alertEl.textContent = msg;
+          alertEl.hidden = false;
+        }
+      }
+    }
+  });
+
+  function showResult(res) {
+    form.hidden = true;
+    step1.hidden = true;
+    if (authHeader) authHeader.hidden = true;
+
+    const icon    = document.getElementById("result_icon");
+    const wrap    = document.getElementById("result_icon_wrap");
+    const title   = document.getElementById("result_title");
+
+    if (res.outcome === "pending_organization_review") {
+      icon.textContent = "hourglass_top";
+      title.textContent = "Request submitted";
+    } else if (res.user && res.user.email_verified_at) {
+      // Passwordless Google account — already verified, nothing to check.
+      icon.textContent = "check_circle";
+      wrap.classList.add("ok");
+      title.textContent = "You're all set";
+    } else {
+      icon.textContent = "mark_email_read";
+      wrap.classList.add("ok");
+      title.textContent = "Check your email";
+    }
+    document.getElementById("result_message").textContent = res.message;
+    document.getElementById("result_panel").hidden = false;
+  }
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,35 @@
+{#
+  Shared shell for every auth screen (login, signup, request-organization).
+  Extends base.html in `bare` mode — no sidebar, no header, no bottom tab
+  bar, just a small footer — so these pages read as app screens rather than
+  as a website section.
+
+  Child templates fill:
+    auth_icon    - material symbol name for the header badge (optional)
+    auth_title   - the h1
+    auth_sub     - one line under the title
+    auth_body    - form(s), alerts, result panels
+
+  #authHeader is addressable so a child can hide the logo/title/subtitle
+  when it swaps the card over to a success state.
+#}
+{% extends "base.html" %}
+
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card">
+
+    <div id="authHeader">
+      <a href="/" aria-label="CartFlow home">
+        <img src="{{ url_for('static', path='images/logo-icon.png') }}"
+             alt="CartFlow" class="auth-logo">
+      </a>
+      <h1 class="auth-title">{% block auth_title %}{% endblock %}</h1>
+      <p class="auth-sub">{% block auth_sub %}{% endblock %}</p>
+    </div>
+
+    {% block auth_body %}{% endblock %}
+
+  </div>
+</div>
+{% endblock %}

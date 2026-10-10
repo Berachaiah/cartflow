@@ -1,0 +1,117 @@
+{% extends "emails/_layout.html" %}
+
+{#
+  The admin notification for a user report (§23). This is the one email in the
+  app whose reader is us rather than a user, and it is shaped for that: the facts
+  first, in a table, then the reporter's own words, then the two links a
+  moderator actually clicks.
+
+  Nothing here is a control. There is no "suspend" button, because a button in an
+  email would need a signed one-click URL and an endpoint that trusts it — an
+  attack surface for a workflow that should happen in an authenticated session.
+#}
+
+{% block subject %}Report: {{ reported_username }}{% endblock %}
+{% block preheader %}{{ reason_label }} — reported by {{ reporter_username }}.{% endblock %}
+{% block heading %}A user was reported{% endblock %}
+
+{% block body_content %}
+<p style="margin:0 0 22px;">
+  <strong style="color:#FFFFFF;">{{ reporter_name }}</strong> reported
+  <strong style="color:#FFFFFF;">{{ reported_name }}</strong> for
+  <strong style="color:#7CC6FF;">{{ reason_label|lower }}</strong>.
+</p>
+
+{# A table, not a bulleted list: the fields line up in every client, including
+   Outlook, and this is a document somebody will scan rather than read. #}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+       style="margin:0 0 24px; border:1px solid #22364F; border-radius:12px; background-color:#0E1B2F;">
+  <tr>
+    <td style="padding:16px 18px 6px; font-size:13px; color:#8FA0B8;">Reported account</td>
+  </tr>
+  <tr>
+    <td style="padding:0 18px 14px; font-size:15px; color:#FFFFFF;">
+      {{ reported_name }} &middot; @{{ reported_username }}<br>
+      <span style="font-size:13px; color:#8FA0B8;">{{ reported_email }}</span>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:0 18px;"><hr style="border:0; border-top:1px solid #22364F; margin:0;"></td>
+  </tr>
+  <tr>
+    <td style="padding:14px 18px 6px; font-size:13px; color:#8FA0B8;">Reported by</td>
+  </tr>
+  <tr>
+    <td style="padding:0 18px 14px; font-size:15px; color:#FFFFFF;">
+      {{ reporter_name }} &middot; @{{ reporter_username }}
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:0 18px;"><hr style="border:0; border-top:1px solid #22364F; margin:0;"></td>
+  </tr>
+  <tr>
+    <td style="padding:14px 18px 6px; font-size:13px; color:#8FA0B8;">Reason</td>
+  </tr>
+  <tr>
+    <td style="padding:0 18px 14px; font-size:15px; color:#FFFFFF;">
+      {{ reason_label }}{% if has_thread %} &middot; reported from a conversation{% endif %}
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:0 18px;"><hr style="border:0; border-top:1px solid #22364F; margin:0;"></td>
+  </tr>
+  <tr>
+    <td style="padding:14px 18px 6px; font-size:13px; color:#8FA0B8;">Filed</td>
+  </tr>
+  <tr>
+    <td style="padding:0 18px 16px; font-size:15px; color:#FFFFFF;">{{ filed_at }}</td>
+  </tr>
+</table>
+
+{% if note %}
+{# Autoescaped, like every other interpolation in this directory — a note is
+   whatever the reporter typed, and a report about someone smuggling markup
+   should not be the thing that lets it through. #}
+<p style="margin:0 0 10px; font-size:13px; font-weight:700; color:#7CC6FF; text-transform:uppercase; letter-spacing:0.4px;">
+  What they said
+</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;">
+  <tr>
+    <td style="padding:16px 18px; background-color:#0E1B2F; border:1px solid #22364F;
+               border-left:3px solid #7CC6FF; border-radius:12px;
+               font-size:15px; color:#C7D2E1; line-height:1.55;">
+      {{ note }}
+    </td>
+  </tr>
+</table>
+{% endif %}
+
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px;">
+  <tr>
+    <td align="center" bgcolor="#7CC6FF" style="border-radius:12px;">
+      <a href="{{ APP_BASE_URL }}/@{{ reported_username }}"
+         style="display:inline-block; padding:14px 26px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;
+                font-size:15px; font-weight:700; color:#07111F; text-decoration:none; border-radius:12px;">
+        View reported profile
+      </a>
+    </td>
+  </tr>
+</table>
+
+<p style="margin:0 0 24px; font-size:13px; color:#8FA0B8;">
+  Reporter's profile:
+  <a href="{{ APP_BASE_URL }}/@{{ reporter_username }}" style="color:#7CC6FF;">@{{ reporter_username }}</a>
+</p>
+
+<hr style="border:0; border-top:1px solid #22364F; margin:24px 0;">
+
+<p style="margin:0 0 10px; font-size:13px; color:#8FA0B8;">
+  <strong style="color:#FFFFFF;">Reference</strong> {{ report_id }}
+</p>
+<p style="margin:0; font-size:13px; color:#8FA0B8;">
+  The report is stored with status <strong style="color:#FFFFFF;">open</strong>. Repeat
+  reports of the same kind from the same person fold into this one rather than
+  sending another email, so a second copy of this message means a different
+  complaint.
+</p>
+{% endblock %}

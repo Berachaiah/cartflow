@@ -1,0 +1,561 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import money, section_head %}
+
+{# ==========================================================================
+   PRODUCT DETAIL — one product at its own URL (docs/product/12 §5).
+
+   THIS REPLACED A MODAL, and the modal is the whole reason the page exists. A
+   product carries a name, a seller, a rating, a stock state, a price pair, a
+   description, delivery coverage, a pickup point, a quantity control, a related
+   rail and three secondary actions. A bottom sheet the width of a phone stacks
+   every one of those into a single ~380px column, so the description — the part
+   a shopper actually reads before spending money — arrived two scrolls below the
+   photo with a scrollbar for company.
+
+   The arrangement, not the size, is the fix. At every width above a phone the
+   photo sits BESIDE the facts:
+
+     phone            one column, photo height-capped so the price and the
+                      Add-to-cart button are on the first screen
+     sm  (600px col)  240px photo | facts — the catalogue arrangement every
+                      shop on the web uses, just scaled to our page width
+     xl  (1160px col) 380px photo | facts | a Delivery & returns rail
+
+   The long-form sections (description, specifications, reviews, more like this)
+   sit BELOW that band at full width, so paragraphs get a readable measure
+   instead of a 240px gutter.
+
+   THE DELIVERY PANEL IS ONE NODE, MOVED — not rendered twice. Below xl it sits
+   in the full-width stack; at xl it moves into the right rail. Same technique as
+   the Shop's filter panel, and for the same reason: two copies of a panel are
+   two panels that can disagree.
+
+   Data comes from app/services/catalog.py through the route, so this page and
+   the Shop grid can never show different prices for the same slug.
+========================================================================== #}
+
+{% set out_of_stock = product.stock == 0 %}
+{% set low_stock = product.stock > 0 and product.stock <= 5 %}
+
+{% block content %}
+<div class="page-wide pb-4">
+
+    {# ---------- breadcrumb ----------
+       A product page is reached from a link as often as from the grid, so it has
+       to say where it sits. Back arrow first for the phone (a shared link has no
+       history to go back to, hence a real href rather than history.back()). #}
+    <nav class="flex items-center gap-1.5 mb-2.5 text-[12px] min-w-0" aria-label="Breadcrumb">
+        <a href="/marketplace" class="glass w-7 h-7 rounded-lg flex items-center justify-center shrink-0 sm:hidden" aria-label="Back to Shop">
+            <span class="material-symbols-outlined text-[17px]" aria-hidden="true">arrow_back</span>
+        </a>
+        <a href="/marketplace" class="text-muted hover:text-primary transition-colors shrink-0">Shop</a>
+        <span class="material-symbols-outlined text-[14px] text-muted shrink-0" aria-hidden="true">chevron_right</span>
+        <a href="/marketplace?category={{ product.category | urlencode }}" class="text-muted hover:text-primary transition-colors shrink-0">{{ product.category }}</a>
+        <span class="material-symbols-outlined text-[14px] text-muted shrink-0 hidden sm:inline" aria-hidden="true">chevron_right</span>
+        <span class="font-semibold truncate hidden sm:inline">{{ product.name }}</span>
+    </nav>
+
+    {# ================= THE BAND: photo | facts | delivery ================= #}
+    <div class="sm:grid sm:grid-cols-[minmax(0,240px)_minmax(0,1fr)] sm:gap-4
+                xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)_288px] xl:gap-5 items-start">
+
+        {# ---------- photo ----------
+           `max-h` on the phone only: a full-width square photo is as tall as the
+           viewport is wide, which pushes the price and the button off-screen on
+           the one device where a shopper is most likely to be. Cropping 25% of a
+           photo beats hiding the buy button. #}
+        <div class="sm:sticky sm:top-20">
+            <div class="relative rounded-2xl overflow-hidden bg-card">
+                <img src="{{ product.image }}" alt="{{ product.alt }}" decoding="async"
+                     class="w-full aspect-square max-h-[44vh] sm:max-h-none object-cover">
+                {% if discount %}
+                <span class="absolute top-2.5 left-2.5 bg-accent text-background text-[11px] font-bold px-2 py-0.5 rounded-full">-{{ discount }}%</span>
+                {% endif %}
+                {% if out_of_stock %}
+                <span class="absolute bottom-2.5 left-2.5 on-media bg-black/60 text-[11px] font-semibold px-2 py-0.5 rounded-full">Out of stock</span>
+                {% endif %}
+                {# Doc 12 §8 allows up to 10 images per product. There is no Media
+                   model for products, so a thumbnail strip would be one photo
+                   pretending to be several. Say the count instead. #}
+                <span class="absolute bottom-2.5 right-2.5 on-media text-[10.5px] opacity-85">1 of 1 photo</span>
+            </div>
+
+            {# Sharing is REAL now — before this page there was no per-product URL,
+               so the Shop's share button had to copy the Shop and apologise.
+
+               Two destinations, two controls. **Share** is the OS sheet (or the
+               clipboard), and `navigator.share` cannot offer an in-app one — the
+               browser decides that list, and CartFlow is not on it. So the DM is
+               its own link, and a link rather than a JS handler because it is
+               navigation: /messages carries the slug into the compose picker and
+               the send is a POST from there. Nothing is sent by arriving.
+
+               Not "Message the seller", which this page cannot honour: a
+               catalogue product's `business` is a name string, not an account, so
+               there is no handle to open a thread with. The wording matches
+               profile.html's share sheet, which is the same action. #}
+            <div class="hidden sm:flex items-center gap-2 mt-2.5">
+                <button type="button" id="pdShare"
+                        class="glass rounded-full px-3 py-1.5 text-[12px] font-semibold inline-flex items-center gap-1.5 hover-card">
+                    <span class="material-symbols-outlined text-[16px]" aria-hidden="true">ios_share</span>Share
+                </button>
+                {% if current_user %}
+                <a href="/messages?share={{ product.slug }}"
+                   class="glass rounded-full px-3 py-1.5 text-[12px] font-semibold inline-flex items-center gap-1.5 hover-card">
+                    <span class="material-symbols-outlined text-[16px]" aria-hidden="true">send</span>Send in a message
+                </a>
+                {% endif %}
+                <button type="button" id="pdSaveWide"
+                        class="glass rounded-full px-3 py-1.5 text-[12px] font-semibold inline-flex items-center gap-1.5 hover-card">
+                    <span class="material-symbols-outlined text-[16px]" aria-hidden="true" data-save-icon>bookmark</span><span data-save-label>Save</span>
+                </button>
+            </div>
+        </div>
+
+        {# ---------- the facts, beside the photo ---------- #}
+        <div class="mt-3 sm:mt-0 space-y-3">
+
+            <div class="glass panel panel-pad">
+                <h1 class="font-display text-base sm:text-lg font-bold leading-snug">{{ product.name }}</h1>
+
+                {# Seller + a way into the rest of their shelf, on ONE line.
+                   `?q=` is honoured by the Shop's client-side search, so this
+                   link lands on that business's listings rather than a dead end. #}
+                <p class="text-[12.5px] text-muted mt-1 flex items-center gap-1.5 flex-wrap">
+                    <span>Sold by <span class="font-semibold text-[var(--c-text)]">{{ product.business }}</span></span>
+                    <span aria-hidden="true">·</span>
+                    <a href="/marketplace?q={{ product.business | urlencode }}" class="text-primary font-semibold hover:underline">
+                        More from this shop
+                    </a>
+                </p>
+
+                {# Rating and stock share a row with the price block below rather
+                   than each claiming their own — doc 12 §18 (no fake 0.0) and
+                   §13 (three stock states) both fit in one line of chips. #}
+                <div class="flex items-center gap-2 flex-wrap mt-2">
+                    {% if product.reviews %}
+                    <span class="text-[12.5px] flex items-center gap-1">
+                        <span class="material-symbols-outlined text-accent text-[16px]" aria-hidden="true">star</span>
+                        <span class="font-bold">{{ "%.1f"|format(product.rating) }}</span>
+                        <span class="text-muted">({{ product.reviews }} ratings)</span>
+                    </span>
+                    {% else %}
+                    <span class="text-[12.5px] text-muted">No reviews yet</span>
+                    {% endif %}
+                    <span class="text-[11.5px] font-semibold px-2 py-0.5 rounded-full
+                                 {{ 'bg-danger/15 text-danger' if out_of_stock else 'bg-accent/20 text-accent' if low_stock else 'bg-success/15 text-success' }}">
+                        {% if out_of_stock %}Out of stock
+                        {% elif low_stock %}Only {{ product.stock }} left
+                        {% else %}In stock{% endif %}
+                    </span>
+                </div>
+
+                <div class="flex items-baseline gap-2 flex-wrap mt-2.5">
+                    <span class="font-display text-[22px] sm:text-2xl font-black leading-none">{{ money(product.price) }}</span>
+                    {% if product.was %}
+                    <span class="text-[13px] text-muted line-through">{{ money(product.was) }}</span>
+                    <span class="text-[11.5px] font-bold text-success">You save {{ money(product.was - product.price) }}</span>
+                    {% endif %}
+                </div>
+
+                {# The one shipping fact we can state truthfully: there is no
+                   pricing engine and no `delivery_zones` table, so quoting
+                   "from ₦1,000" would be an invention. #}
+                <p class="text-[12px] text-muted mt-1.5 flex items-start gap-1.5">
+                    <span class="material-symbols-outlined text-[15px] mt-px shrink-0" aria-hidden="true">local_shipping</span>
+                    <span>Delivery fee is confirmed at checkout, per business{% if product.delivery %} — {{ product.business }} delivers to {{ product.delivery | length }} area{{ '' if product.delivery | length == 1 else 's' }}{% endif %}.</span>
+                </p>
+
+                {# ---- quantity + add to cart, one row ----
+                   Stacked, the stepper and the button were two full-width rows
+                   for one decision. Side by side they read as what they are: how
+                   many, then buy. #}
+                {% if out_of_stock %}
+                <div class="mt-3.5 rounded-full bg-card text-muted text-center font-bold py-3 text-[14px]" aria-disabled="true">
+                    Out of stock
+                </div>
+                <p class="text-[11.5px] text-muted mt-1.5 text-center">
+                    {{ product.business }} hasn't restocked this one yet. Save it and check back.
+                </p>
+                {% else %}
+                <div class="flex items-stretch gap-2 mt-3.5">
+                    <div class="glass rounded-full flex items-center gap-1 px-1 shrink-0" role="group" aria-label="Quantity">
+                        <button type="button" id="pdMinus" aria-label="Decrease quantity"
+                                class="w-8 h-8 rounded-full flex items-center justify-center">
+                            <span class="material-symbols-outlined text-[18px]" aria-hidden="true">remove</span>
+                        </button>
+                        <span id="pdQty" class="w-6 text-center text-[13.5px] font-bold" aria-live="polite">1</span>
+                        <button type="button" id="pdPlus" aria-label="Increase quantity"
+                                class="w-8 h-8 rounded-full flex items-center justify-center">
+                            <span class="material-symbols-outlined text-[18px]" aria-hidden="true">add</span>
+                        </button>
+                    </div>
+                    <button type="button" id="pdAdd"
+                            class="flex-1 bg-primary text-background font-bold rounded-full py-2.5 text-[14px] btn-glow inline-flex items-center justify-center gap-1.5">
+                        <span class="material-symbols-outlined text-[18px]" aria-hidden="true">add_shopping_cart</span>
+                        Add to cart
+                    </button>
+                </div>
+                <p class="text-[11.5px] text-muted mt-1.5">
+                    <span id="pdInCart" class="hidden"></span>
+                    <a href="/marketplace?cart=1" class="text-primary font-semibold hover:underline">View cart</a> ·
+                    {{ product.stock }} available
+                </p>
+                {% endif %}
+
+                {# Save + Share on the phone, where the photo column's copies are
+                   hidden. Icons only would be a guessing game at this size.
+
+                   The column count moves with the signed-in state rather than
+                   being fixed at 3: two pills in a 3-column grid would sit at
+                   two-thirds width with a hole where the third belongs. #}
+                <div class="grid {% if current_user %}grid-cols-3{% else %}grid-cols-2{% endif %} gap-2 mt-2.5 sm:hidden">
+                    <button type="button" id="pdSaveNarrow"
+                            class="glass rounded-full py-2 text-[12.5px] font-semibold inline-flex items-center justify-center gap-1.5">
+                        <span class="material-symbols-outlined text-[17px]" aria-hidden="true" data-save-icon>bookmark</span><span data-save-label>Save</span>
+                    </button>
+                    <button type="button" id="pdShareNarrow"
+                            class="glass rounded-full py-2 text-[12.5px] font-semibold inline-flex items-center justify-center gap-1.5">
+                        <span class="material-symbols-outlined text-[17px]" aria-hidden="true">ios_share</span>Share
+                    </button>
+                    {# "Send", not the wide row's "Send in a message": a third of a
+                       phone's width is one word. The sheet it opens confirms what
+                       is attached and asks who it goes to. #}
+                    {% if current_user %}
+                    <a href="/messages?share={{ product.slug }}"
+                       class="glass rounded-full py-2 text-[12.5px] font-semibold inline-flex items-center justify-center gap-1.5">
+                        <span class="material-symbols-outlined text-[17px]" aria-hidden="true">send</span>Send
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+
+            {# ---- buyer protection ----
+               Where a big marketplace puts "PROMOTIONS". We have no promotion
+               engine, and escrow is the thing worth saying anyway: it is the
+               reason to buy from a student shop you've never met. Doc 15. #}
+            <div class="glass panel panel-pad">
+                {{ section_head("Buying this safely", level=2, id="pdSafety") }}
+                <ul class="space-y-2">
+                    <li class="flex items-start gap-2.5">
+                        <span class="material-symbols-outlined text-[17px] text-primary mt-px shrink-0" aria-hidden="true">lock</span>
+                        <span class="text-[12.5px] leading-snug">Your payment is held in escrow and released to the seller only after you confirm the order arrived.</span>
+                    </li>
+                    <li class="flex items-start gap-2.5">
+                        <span class="material-symbols-outlined text-[17px] text-primary mt-px shrink-0" aria-hidden="true">gavel</span>
+                        <span class="text-[12.5px] leading-snug">If it arrives wrong or not at all, open a dispute from Orders and CartFlow reviews it.</span>
+                    </li>
+                    <li class="flex items-start gap-2.5">
+                        <span class="material-symbols-outlined text-[17px] text-primary mt-px shrink-0" aria-hidden="true">verified_user</span>
+                        <span class="text-[12.5px] leading-snug">Sellers are verified businesses on CartFlow, not anonymous accounts.</span>
+                    </li>
+                </ul>
+                <p class="text-[11px] text-muted mt-2.5 leading-snug">
+                    Escrow and payouts go live with CartFlow payments — until then nothing can be
+                    charged, so this cart is a saved list.
+                </p>
+            </div>
+        </div>
+
+        {# xl+ only: the slot the delivery panel moves into. Empty by design. #}
+        <aside id="deliverySlotRail" class="hidden xl:block xl:sticky xl:top-20"></aside>
+    </div>
+
+    {# ================= FULL-WIDTH STACK =================
+       Paragraphs, tables and a related grid all want the whole measure, not the
+       facts column's share of it. On xl this sits under all three columns. #}
+    <div class="mt-3 space-y-3">
+
+        {# The delivery panel's home below xl. The JS moves the node here or into
+           the rail above; it is never rendered twice. #}
+        <div id="deliverySlotInline"></div>
+
+        <div id="deliveryPanel" class="glass panel panel-pad">
+            {{ section_head("Delivery & returns", "How this product reaches you.", level=2, id="pdDelivery") }}
+            <div class="space-y-3">
+                <div>
+                    <p class="text-[12.5px] font-semibold flex items-center gap-1.5">
+                        <span class="material-symbols-outlined text-[16px] text-primary" aria-hidden="true">local_shipping</span>
+                        Delivers to
+                    </p>
+                    <div class="flex flex-wrap gap-1.5 mt-1.5">
+                        {% for area in product.delivery %}
+                        <span class="glass border border-border rounded-full px-2.5 py-0.5 text-[11.5px]">{{ area }}</span>
+                        {% else %}
+                        <span class="text-[12px] text-muted">This seller hasn't set a delivery area yet.</span>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="pt-3 border-t border-border">
+                    <p class="text-[12.5px] font-semibold flex items-center gap-1.5">
+                        <span class="material-symbols-outlined text-[16px] text-primary" aria-hidden="true">storefront</span>
+                        Pickup station
+                    </p>
+                    <p class="text-[12px] text-muted mt-1 leading-snug">
+                        {{ product.pickup or "No pickup point set for this product." }}
+                    </p>
+                </div>
+                <div class="pt-3 border-t border-border">
+                    <p class="text-[12.5px] font-semibold flex items-center gap-1.5">
+                        <span class="material-symbols-outlined text-[16px] text-primary" aria-hidden="true">assignment_return</span>
+                        Returns
+                    </p>
+                    <p class="text-[12px] text-muted mt-1 leading-snug">
+                        Report a problem within 48 hours of delivery and your escrow payment is
+                        held while it's sorted out.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        {# ---- description + specifications, side by side ----
+           Two short panels stacked left 300px of empty space next to each; the
+           description finally has the room the sheet never gave it. #}
+        <div class="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,320px)] lg:gap-3 space-y-3 lg:space-y-0 items-start">
+            <div class="glass panel panel-pad">
+                {{ section_head("Product details", level=2, id="pdAbout") }}
+                <p class="text-[13px] leading-relaxed">{{ product.desc }}</p>
+                {% if product.tags %}
+                <div class="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-border">
+                    {% for tag in product.tags %}
+                    <a href="/marketplace?q={{ tag | urlencode }}"
+                       class="glass border border-border rounded-full px-2.5 py-0.5 text-[11.5px] hover:text-primary transition-colors">#{{ tag }}</a>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+
+            {# A definition list, not prose: these are lookups, and a shopper
+               scans them rather than reading them. #}
+            <div class="glass panel panel-pad">
+                {{ section_head("Specifications", level=2, id="pdSpecs") }}
+                <dl class="text-[12.5px] divide-y divide-border">
+                    <div class="flex items-baseline justify-between gap-3 py-1.5 first:pt-0">
+                        <dt class="text-muted shrink-0">Category</dt>
+                        <dd class="font-semibold text-right">
+                            <a href="/marketplace?category={{ product.category | urlencode }}" class="hover:text-primary transition-colors">{{ product.category }}</a>
+                        </dd>
+                    </div>
+                    <div class="flex items-baseline justify-between gap-3 py-1.5">
+                        <dt class="text-muted shrink-0">Seller</dt>
+                        <dd class="font-semibold text-right truncate">{{ product.business }}</dd>
+                    </div>
+                    <div class="flex items-baseline justify-between gap-3 py-1.5">
+                        <dt class="text-muted shrink-0">Units sold</dt>
+                        <dd class="font-semibold text-right">{{ "{:,}".format(product.sold) }}</dd>
+                    </div>
+                    <div class="flex items-baseline justify-between gap-3 py-1.5">
+                        <dt class="text-muted shrink-0">Listed</dt>
+                        <dd class="font-semibold text-right">
+                            {% if product.days == 0 %}Today
+                            {% elif product.days == 1 %}Yesterday
+                            {% else %}{{ product.days }} days ago{% endif %}
+                        </dd>
+                    </div>
+                    <div class="flex items-baseline justify-between gap-3 py-1.5 last:pb-0">
+                        <dt class="text-muted shrink-0">Stock</dt>
+                        <dd class="font-semibold text-right">{{ product.stock }} unit{{ '' if product.stock == 1 else 's' }}</dd>
+                    </div>
+                </dl>
+            </div>
+        </div>
+
+        {# ---- reviews (doc 12 §17) ----
+           Verified buyers only, so there is nothing to list until orders exist.
+           The aggregate above is placeholder and this says so rather than
+           inventing five-star quotes. #}
+        <div class="glass panel panel-pad">
+            {{ section_head("Reviews", level=2, id="pdReviews") }}
+            <div class="sm:flex sm:items-center sm:gap-4">
+                {% if product.reviews %}
+                <div class="flex items-center gap-3 shrink-0">
+                    <span class="font-display text-2xl font-black leading-none">{{ "%.1f"|format(product.rating) }}</span>
+                    <div>
+                        <div class="flex items-center gap-0.5" aria-hidden="true">
+                            {% for i in range(5) %}
+                            <span class="material-symbols-outlined text-[15px] {{ 'text-accent' if i < product.rating | round(0, 'floor') | int else 'text-muted' }}">star</span>
+                            {% endfor %}
+                        </div>
+                        <p class="text-[11.5px] text-muted mt-0.5">{{ product.reviews }} ratings</p>
+                    </div>
+                </div>
+                <p class="text-[12px] text-muted leading-snug mt-2.5 sm:mt-0 sm:border-l sm:border-border sm:pl-4">
+                    Only verified buyers can review a product, so individual reviews appear here
+                    once orders and payments are live.
+                </p>
+                {% else %}
+                <p class="text-[12.5px] text-muted leading-snug">
+                    No reviews yet — this is a new listing. Only verified buyers can review a
+                    product, so the first review arrives after the first order.
+                </p>
+                {% endif %}
+            </div>
+        </div>
+
+        {# ---- more like this (doc 12 §21) ----
+           A grid, not the sheet's cramped horizontal rail: a page has the width
+           for six tiles, and a shopper who didn't buy this one is exactly who
+           these are for. #}
+        {% if related %}
+        <section class="glass panel panel-pad" aria-labelledby="pdRelated">
+            {{ section_head("More like this", "Other listings in " ~ product.category ~ " and beyond.", level=2, id="pdRelated") }}
+            <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-2.5">
+                {% for p in related %}
+                <a href="/product/{{ p.slug }}" class="group">
+                    <div class="relative rounded-xl overflow-hidden bg-card">
+                        <img src="{{ p.image }}" alt="{{ p.alt }}" loading="lazy" decoding="async"
+                             class="w-full aspect-square object-cover">
+                        {% set rel_discount = ((p.was - p.price) / p.was * 100) | round | int if p.was else 0 %}
+                        {% if rel_discount %}
+                        <span class="absolute top-1.5 left-1.5 bg-accent text-background text-[10px] font-bold px-1.5 py-0.5 rounded-full">-{{ rel_discount }}%</span>
+                        {% endif %}
+                    </div>
+                    <p class="text-[12px] font-semibold mt-1.5 line-clamp-2 leading-snug group-hover:text-primary transition-colors">{{ p.name }}</p>
+                    <p class="text-[11.5px] text-muted truncate">{{ p.business }}</p>
+                    <p class="text-[12.5px] font-bold mt-0.5">{{ money(p.price) }}</p>
+                </a>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+
+{% block extra_script %}
+{# CartFlowStore comes from base.html, which loads it before this block for every
+   page — the badge it feeds is rendered there, so a page-level copy would only
+   re-execute the same file. #}
+<script>
+/* ===================== PRODUCT PAGE =====================
+   Three jobs: the quantity control, add-to-cart, and moving the delivery panel
+   between its two homes. Everything else on this page is server-rendered.
+
+   The cart itself is CartFlowStore (static/js/cartflow-cart.js) — the same
+   storage the Shop's cart sheet reads, so adding here and opening the cart there
+   agree without either page knowing about the other. */
+
+const PD = {
+    slug: {{ product.slug | tojson }},
+    name: {{ product.name | tojson }},
+    stock: {{ product.stock | int }},
+    shareUrl: {{ share_url | tojson }}
+};
+
+/* ---- the delivery panel lives in exactly one place at a time ----
+   xl+ → the right rail beside the photo and facts; below that → the full-width
+   stack. Moving the node rather than rendering it twice is what guarantees the
+   two positions can never hold different delivery areas. */
+const mqWide = window.matchMedia('(min-width:1280px)');
+const elDeliveryPanel = document.getElementById('deliveryPanel');
+const slotRail = document.getElementById('deliverySlotRail');
+const slotInline = document.getElementById('deliverySlotInline');
+
+function placeDelivery(){
+    const target = mqWide.matches ? slotRail : slotInline;
+    if (elDeliveryPanel.parentElement !== target) target.appendChild(elDeliveryPanel);
+}
+placeDelivery();
+mqWide.addEventListener('change', placeDelivery);
+
+/* ---- quantity (doc 13 §6 — capped at what's in stock) ---- */
+const elQty = document.getElementById('pdQty');
+const elMinus = document.getElementById('pdMinus');
+const elPlus = document.getElementById('pdPlus');
+const elAdd = document.getElementById('pdAdd');
+const elInCart = document.getElementById('pdInCart');
+let qty = 1;
+
+function paintQty(){
+    if (!elQty) return;
+    elQty.textContent = qty;
+    elMinus.disabled = qty <= 1;
+    elPlus.disabled = qty >= PD.stock;
+    [elMinus, elPlus].forEach(b => b.classList.toggle('opacity-40', b.disabled));
+}
+
+/* How many of THIS product are already in the cart. Shown because a shopper who
+   taps Add twice deserves to know the second tap landed. */
+function paintInCart(){
+    if (!elInCart) return;
+    const inCart = window.CartFlowStore.qtyOf(PD.slug);
+    elInCart.textContent = inCart + ' in your cart · ';
+    elInCart.classList.toggle('hidden', inCart === 0);
+}
+
+if (elMinus){
+    elMinus.addEventListener('click', () => { if (qty > 1){ qty--; paintQty(); } });
+    elPlus.addEventListener('click', () => { if (qty < PD.stock){ qty++; paintQty(); } });
+    paintQty();
+}
+
+if (elAdd){
+    elAdd.addEventListener('click', () => {
+        const result = window.CartFlowStore.addToCart(PD.slug, qty, PD.stock);
+        paintInCart();
+        window.cfPaintCartBadge && window.cfPaintCartBadge();
+        // Doc 13 §6: never silently exceed inventory — say what happened.
+        if (result.capped) showToast('Only ' + PD.stock + ' in stock, so that is what is in your cart.');
+        else showToast(PD.name + ' added to your cart.');
+    });
+}
+
+/* ---- save (doc 12 §19) ----
+   Two buttons, one state: the photo column's copy on sm+ and the narrow one on
+   phones. Both paint from the same read, so they can't disagree. */
+const saveButtons = ['pdSaveWide', 'pdSaveNarrow'].map(id => document.getElementById(id)).filter(Boolean);
+
+function paintSaved(){
+    const saved = window.CartFlowStore.isSaved(PD.slug);
+    saveButtons.forEach(btn => {
+        btn.querySelector('[data-save-icon]').textContent = saved ? 'bookmark_added' : 'bookmark';
+        btn.querySelector('[data-save-label]').textContent = saved ? 'Saved' : 'Save';
+        btn.classList.toggle('text-primary', saved);
+        btn.setAttribute('aria-pressed', saved ? 'true' : 'false');
+    });
+}
+
+saveButtons.forEach(btn => btn.addEventListener('click', () => {
+    const nowSaved = window.CartFlowStore.toggleSaved(PD.slug);
+    paintSaved();
+    // Device-local on purpose (no `saved_products` table), and the copy says so
+    // rather than implying the account synced.
+    showToast(nowSaved ? 'Saved on this device.' : 'Removed from saved.');
+}));
+paintSaved();
+
+/* ---- share ----
+   The first genuinely shareable product link in the app: before this page
+   existed there was no per-product URL to copy. */
+async function shareProduct(){
+    try {
+        if (navigator.share){ await navigator.share({ title: PD.name, url: PD.shareUrl }); return; }
+        await navigator.clipboard.writeText(PD.shareUrl);
+        showToast('Product link copied.');
+    } catch (e){
+        if (e && e.name === 'AbortError') return;   // the user dismissed the sheet
+        showToast('Copy the address bar to share this product.');
+    }
+}
+['pdShare', 'pdShareNarrow'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.addEventListener('click', shareProduct);
+});
+
+/* ---- the top bar's cart icon carries a live count ----
+   base.html renders the icon AND owns the badge (cfPaintCartBadge), because the
+   count has to survive navigating away from here. This page only says "it
+   changed". */
+
+paintInCart();
+window.cfPaintCartBadge && window.cfPaintCartBadge();
+
+/* ---- remember that this product was viewed ----
+   Home's "Recently viewed" rail reads this. Recorded on the product page rather
+   than at the tap that opened it, so a product reached from a shared link or the
+   address bar counts too — and so the rail can't fill up with things you only
+   scrolled past. Slug only; the rail looks the rest up in the catalogue. */
+window.CartFlowStore.pushRecent(PD.slug);
+</script>
+{% endblock %}

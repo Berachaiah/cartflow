@@ -1,0 +1,633 @@
+/* ============================================================
+   CartFlow UI system
+   ------------------------------------------------------------
+   Component classes shared by every page. Consumes the CSS vars
+   declared in base.html (--c-bg, --c-surface, --c-card, ...) so
+   light/dark theming is automatic and nothing here hardcodes a
+   theme colour except the brand blue.
+
+   Why a stylesheet and not more Tailwind utility strings: form
+   controls need pseudo-states (:focus-visible, :disabled,
+   ::placeholder, :-webkit-autofill) that utility soup either
+   can't express or duplicates on every single input. One
+   definition = one behaviour everywhere.
+   ============================================================ */
+
+:root{
+  --brand:#7CC6FF;
+  --brand-dark:#5AB6FF;
+  --tap:48px;                /* minimum comfortable touch target */
+  --safe-b:env(safe-area-inset-bottom, 0px);
+  --safe-t:env(safe-area-inset-top, 0px);
+
+  /* Corner radii — one scale, used everywhere so the whole UI rounds
+     together. Bumped generous on purpose: soft corners read as friendly and
+     "app-like" where sharp ones read as a raw form. Tune here, not per-rule. */
+  --r-sm:12px;               /* small controls: reveal button, small chips */
+  --r-md:17px;               /* inputs, buttons — the workhorse radius */
+  --r-lg:22px;               /* cards, dropdown panels, role cards */
+  --r-xl:30px;               /* the auth card itself */
+  --r-pill:999px;
+}
+
+/* ---------- app chrome ------------------------------------ */
+
+/* Lock the viewport to the real visible height on mobile. 100vh is
+   wrong on iOS Safari (it excludes the collapsing URL bar), which is
+   what makes web apps feel "off" — content sits under the chrome.
+   100dvh is the fix; the vh line is the fallback for old browsers. */
+.app-screen{
+  min-height:100vh;
+  min-height:100dvh;
+  display:flex;
+  flex-direction:column;
+}
+
+/* Disable the iOS "rubber band" overscroll glow inside the app shell,
+   which otherwise reveals the page background and breaks the illusion. */
+body{ overscroll-behavior-y:none; }
+
+/* Kill the grey tap flash on Android/iOS — native apps don't have it. */
+*{ -webkit-tap-highlight-color:transparent; }
+
+/* ---------- auth layout ----------------------------------- */
+
+.auth-wrap{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  padding:calc(20px + var(--safe-t)) 20px 20px;
+  width:100%;
+}
+
+/* Full-bleed on phones (an app screen, not a card floating in space),
+   becomes a real card from `sm` up where there's room around it. */
+.auth-card{
+  width:100%;
+  max-width:440px;
+}
+@media (min-width:640px){
+  .auth-card{
+    /* A soft warm halo at the top lifts the cool navy toward "inviting"
+       without touching the global theme tokens; on the light cream it's
+       barely-there. */
+    background:
+      radial-gradient(130% 70% at 50% -8%, rgba(255,190,130,.07), transparent 62%),
+      var(--c-surface);
+    border:1px solid var(--c-border);
+    border-radius:var(--r-xl);
+    padding:36px 32px;
+    box-shadow:0 24px 70px rgba(0,0,0,.28);
+  }
+  [data-theme="light"] .auth-card{ box-shadow:0 22px 60px rgba(76,63,42,.12); }
+}
+
+.auth-logo{
+  width:60px;height:60px;
+  object-fit:contain;
+  margin:0 auto 18px;
+  display:block;
+}
+.auth-title{
+  font-family:'Fraunces',serif;
+  font-weight:800;
+  font-size:27px;
+  line-height:1.15;
+  letter-spacing:-.02em;
+  text-align:center;
+}
+.auth-sub{
+  text-align:center;
+  color:var(--c-muted);
+  font-size:14.5px;
+  margin-top:7px;
+  margin-bottom:26px;
+  line-height:1.5;
+}
+
+/* ---------- form fields ----------------------------------- */
+
+.field{ margin-bottom:16px; }
+
+.field-label{
+  display:block;
+  font-size:13.5px;
+  font-weight:600;
+  margin-bottom:7px;
+  color:var(--c-text);
+}
+.field-label .opt{ color:var(--c-muted); font-weight:400; }
+
+.control{ position:relative; display:block; }
+
+.input{
+  width:100%;
+  min-height:var(--tap);
+  padding:14px 16px;
+  background:var(--c-card);
+  border:1px solid var(--c-border);
+  border-radius:var(--r-md);
+  color:var(--c-text);
+  /* 16px exactly: iOS Safari force-zooms the page on focus for anything
+     smaller. This single value is the difference between "web page" and
+     "app" on an iPhone. */
+  font-size:16px;
+  line-height:1.35;
+  outline:none;
+  transition:border-color .18s ease, box-shadow .18s ease, background-color .18s ease;
+  -webkit-appearance:none;
+  appearance:none;
+}
+/* The Tailwind forms plugin (loaded via the CDN in base.html) base-styles
+   every control with a hardcoded white `background-color` through
+   [type='text']-style selectors. Those tie `.input` on specificity (0,1,0)
+   and win on source order — the CDN injects its sheet after this file — so
+   inputs render white and, in dark mode, white text lands on a white box and
+   vanishes. Element+class (0,1,1) outranks the plugin, so the theme vars win
+   in both themes: dark text on a light box in light mode, light text on the
+   dark card in dark mode. */
+input.input,
+select.input,
+textarea.input{
+  background:var(--c-card);
+  color:var(--c-text);
+}
+.input::placeholder{ color:var(--c-muted); opacity:.85; }
+.input:hover:not(:disabled):not(:focus){ border-color:color-mix(in srgb, var(--brand) 30%, var(--c-border)); }
+.input:focus{
+  border-color:var(--brand);
+  box-shadow:0 0 0 3px rgba(124,198,255,.18);
+}
+.input:disabled{ opacity:.55; cursor:not-allowed; }
+
+/* Chrome's autofill paints its own yellow/blue background and near-black
+   text, which is unreadable on the dark theme. There is no property to
+   turn it off — the inset-shadow trick is the only reliable override. */
+.input:-webkit-autofill,
+.input:-webkit-autofill:hover,
+.input:-webkit-autofill:focus{
+  -webkit-text-fill-color:var(--c-text);
+  -webkit-box-shadow:0 0 0 1000px var(--c-card) inset;
+  caret-color:var(--c-text);
+  transition:background-color 9999s ease-out;
+}
+
+/* icon-leading variant */
+.control.has-icon .input{ padding-left:44px; }
+.control .lead-icon{
+  position:absolute;
+  left:14px; top:50%;
+  transform:translateY(-50%);
+  color:var(--c-muted);
+  font-size:20px;
+  pointer-events:none;
+  transition:color .18s ease;
+}
+.control:focus-within .lead-icon{ color:var(--brand); }
+
+/* trailing button (password reveal) */
+.control.has-trail .input{ padding-right:48px; }
+.trail-btn{
+  position:absolute;
+  right:6px; top:50%;
+  transform:translateY(-50%);
+  width:38px;height:38px;
+  display:flex;align-items:center;justify-content:center;
+  border-radius:var(--r-sm);
+  color:var(--c-muted);
+  background:transparent;
+  border:0;
+  cursor:pointer;
+  transition:color .18s ease, background-color .18s ease;
+}
+.trail-btn:hover{ color:var(--c-text); background:var(--c-glass); }
+.trail-btn .material-symbols-outlined{ font-size:20px; }
+
+select.input{
+  padding-right:40px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394A3B8' stroke-width='2.2' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:right 13px center;
+  background-size:17px;
+  cursor:pointer;
+}
+
+.field-hint{
+  font-size:12.5px;
+  color:var(--c-muted);
+  margin-top:6px;
+  line-height:1.45;
+}
+
+/* Inline validation. `hidden` alone isn't enough — the element must also
+   stop being announced, so we toggle the attribute rather than a class. */
+.field-error{
+  display:flex;
+  align-items:flex-start;
+  gap:5px;
+  font-size:12.5px;
+  color:#F04438;
+  margin-top:6px;
+  line-height:1.4;
+}
+.field-error .material-symbols-outlined{ font-size:15px; margin-top:1px; }
+.field.invalid .input{ border-color:#F04438; }
+.field.invalid .input:focus{ box-shadow:0 0 0 3px rgba(240,68,56,.16); }
+.field.valid .input{ border-color:rgba(50,213,131,.55); }
+
+/* ---------- buttons --------------------------------------- */
+
+.btn{
+  width:100%;
+  min-height:var(--tap);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:9px;
+  padding:13px 20px;
+  border-radius:var(--r-md);
+  border:1px solid transparent;
+  font-size:15.5px;
+  font-weight:700;
+  cursor:pointer;
+  /* Springy press: cubic-bezier overshoot reads as "physical" the way a
+     linear transition doesn't. */
+  transition:transform .12s cubic-bezier(.2,.8,.2,1), background-color .2s ease,
+             border-color .2s ease, box-shadow .2s ease, opacity .2s ease;
+  -webkit-appearance:none;
+  appearance:none;
+}
+.btn:active:not(:disabled){ transform:scale(.975); }
+.btn:disabled{ opacity:.6; cursor:not-allowed; }
+.btn:focus-visible{ outline:2px solid var(--brand); outline-offset:2px; }
+
+.btn-primary{
+  background:var(--brand);
+  color:#07111F;
+}
+.btn-primary:hover:not(:disabled){
+  background:var(--brand-dark);
+  box-shadow:0 0 26px rgba(124,198,255,.42);
+}
+
+.btn-secondary{
+  background:var(--c-card);
+  border-color:var(--c-border);
+  color:var(--c-text);
+}
+.btn-secondary:hover:not(:disabled){ border-color:var(--brand); background:var(--c-glass); }
+
+.btn-ghost{
+  background:transparent;
+  border-color:var(--c-border);
+  color:var(--c-text);
+}
+.btn-ghost:hover:not(:disabled){ background:var(--c-glass); }
+
+/* Auto-width, secondary-action variant. Still 40px tall rather than the
+   full 48px tap target: these sit inside a field's helper area, never as
+   the primary thing on the screen. */
+.btn-sm{
+  width:auto;
+  min-height:40px;
+  padding:9px 14px;
+  font-size:13px;
+  border-radius:var(--r-sm);
+  gap:6px;
+}
+
+/* Spinner state. The label is hidden rather than replaced so the button
+   keeps its exact width and the layout doesn't jump mid-submit. */
+.btn[data-loading="true"]{ pointer-events:none; opacity:.85; }
+.btn[data-loading="true"] .btn-label{ visibility:hidden; }
+.btn[data-loading="true"]::after{
+  content:"";
+  position:absolute;
+  width:19px;height:19px;
+  border:2.5px solid rgba(7,17,31,.28);
+  border-top-color:#07111F;
+  border-radius:50%;
+  animation:cf-spin .65s linear infinite;
+}
+.btn-secondary[data-loading="true"]::after,
+.btn-ghost[data-loading="true"]::after{
+  border-color:var(--c-border);
+  border-top-color:var(--brand);
+}
+.btn{ position:relative; }
+@keyframes cf-spin{ to{ transform:rotate(360deg); } }
+
+/* ---------- divider --------------------------------------- */
+
+.or-divider{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  margin:20px 0;
+  color:var(--c-muted);
+  font-size:12.5px;
+  font-weight:500;
+}
+.or-divider::before,
+.or-divider::after{
+  content:"";
+  flex:1;
+  height:1px;
+  background:var(--c-border);
+}
+
+/* ---------- typeahead / listbox --------------------------- */
+
+/* NOTE: deliberately NOT `.glass`. A 5%-opacity panel let the submit
+   button and the "Log in" line show straight through the suggestions —
+   the dropdown must be opaque and above everything near it. */
+.suggest-panel{
+  position:absolute;
+  left:0; right:0;
+  top:calc(100% + 6px);
+  z-index:60;
+  background:var(--c-surface);
+  border:1px solid var(--c-border);
+  border-radius:var(--r-lg);
+  box-shadow:0 22px 50px rgba(0,0,0,.42);
+  overflow:hidden;
+  max-height:290px;
+  overflow-y:auto;
+  overscroll-behavior:contain;   /* scrolling the list must not scroll the page */
+}
+[data-theme="light"] .suggest-panel{ box-shadow:0 18px 44px rgba(15,23,42,.16); }
+
+.suggest-item{
+  width:100%;
+  display:flex;
+  align-items:center;
+  gap:11px;
+  padding:12px 14px;
+  text-align:left;
+  background:transparent;
+  border:0;
+  border-bottom:1px solid var(--c-border);
+  color:var(--c-text);
+  cursor:pointer;
+  transition:background-color .14s ease;
+}
+.suggest-item:last-child{ border-bottom:0; }
+.suggest-item:hover,
+.suggest-item[aria-selected="true"]{ background:var(--c-glass); }
+/* name over state, not run together — the meta reads as a subtitle. block so
+   the 2px margin actually separates them (inline spans would ignore it). */
+.suggest-item .s-name{ display:block; font-size:14.5px; font-weight:600; line-height:1.3; }
+.suggest-item .s-meta{ display:block; font-size:12px; color:var(--c-muted); margin-top:3px; }
+.suggest-empty{ padding:16px 14px; }
+
+/* selected-entity chip */
+.chip-selected{
+  display:flex;
+  align-items:center;
+  gap:11px;
+  padding:12px 14px;
+  min-height:var(--tap);
+  background:rgba(124,198,255,.09);
+  border:1px solid rgba(124,198,255,.32);
+  border-radius:var(--r-md);
+}
+
+/* ---------- password strength meter ----------------------- */
+
+.pw-meter{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin-top:9px;
+}
+.pw-bar{
+  flex:1;
+  height:5px;
+  border-radius:999px;
+  background:var(--c-border);
+  overflow:hidden;
+}
+.pw-bar-fill{
+  height:100%;
+  width:0;
+  border-radius:999px;
+  background:#F04438;
+  transition:width .25s ease, background-color .25s ease;
+}
+.pw-bar-fill[data-level="3"]{ background:#FFB547; }
+.pw-bar-fill[data-level="4"]{ background:#32D583; }
+.pw-bar-fill[data-level="5"]{ background:#32D583; }
+.pw-label{
+  font-size:12px;
+  color:var(--c-muted);
+  min-width:62px;
+  text-align:right;
+}
+
+/* ---------- OTP entry ------------------------------------- */
+
+/* One wide input rather than six boxes. Six-box UIs look sharper in a
+   mockup and are consistently worse in practice: they fight password
+   managers, break one-tap SMS/email autofill, and turn backspace into a
+   guessing game. A single input with inputmode=numeric gets the numeric
+   keypad on mobile and lets `autocomplete="one-time-code"` do its job. */
+.otp-input{
+  width:100%;
+  min-height:60px;
+  text-align:center;
+  font-family:'SF Mono',SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:27px;
+  font-weight:700;
+  letter-spacing:11px;
+  /* Offset half the tracking so the digits look optically centred —
+     letter-spacing adds a trailing gap after the final character. */
+  text-indent:11px;
+  padding:12px;
+}
+.otp-input::placeholder{
+  letter-spacing:9px;
+  font-size:23px;
+  font-weight:400;
+}
+/* Number spinners would be absurd at this size, and the field is a text
+   input anyway (leading zeros must survive). */
+.otp-input::-webkit-outer-spin-button,
+.otp-input::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
+
+/* ---------- inline availability status -------------------- */
+
+.status-line{
+  display:flex;
+  align-items:center;
+  gap:5px;
+  font-size:12.5px;
+  margin-top:6px;
+  line-height:1.4;
+}
+.status-line .material-symbols-outlined{ font-size:15px; }
+.status-line.checking{ color:var(--c-muted); }
+.status-line.ok{ color:#32D583; }
+.status-line.bad{ color:#F04438; }
+.status-line.checking .material-symbols-outlined{
+  animation:cf-spin .9s linear infinite;
+}
+@media (prefers-reduced-motion:reduce){
+  .status-line.checking .material-symbols-outlined{ animation:none; }
+}
+
+/* ---------- misc ------------------------------------------ */
+
+.alert{
+  display:flex;
+  gap:10px;
+  padding:12px 14px;
+  border-radius:var(--r-md);
+  font-size:13.5px;
+  line-height:1.45;
+  margin-bottom:16px;
+}
+.alert-danger{
+  background:rgba(240,68,56,.10);
+  border:1px solid rgba(240,68,56,.30);
+  color:#FCA5A0;
+}
+[data-theme="light"] .alert-danger{ color:#B42318; }
+.alert-info{
+  background:rgba(124,198,255,.09);
+  border:1px solid rgba(124,198,255,.28);
+  color:var(--c-text);
+}
+
+.auth-alt{
+  text-align:center;
+  font-size:14px;
+  color:var(--c-muted);
+  margin-top:20px;
+}
+.auth-alt a{ color:var(--brand); font-weight:600; }
+.auth-alt a:hover{ text-decoration:underline; }
+
+.link-quiet{ color:var(--brand); font-weight:600; }
+.link-quiet:hover{ text-decoration:underline; }
+
+/* "Keep me logged in" on the left, "Forgot password?" on the right.
+   wrap + gap so a long translation drops to a second line instead of
+   crushing the checkbox label. */
+.form-row{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px 14px;
+  font-size:14px;
+  margin-bottom:20px;
+}
+
+.legal-note{
+  text-align:center;
+  font-size:11.5px;
+  color:var(--c-muted);
+  line-height:1.5;
+  margin-top:16px;
+}
+.legal-note a{ color:var(--c-muted); text-decoration:underline; }
+.legal-note a:hover{ color:var(--brand); }
+
+/* success / result panel */
+.result-panel{
+  text-align:center;
+  padding:12px 4px 4px;
+}
+.result-icon{
+  width:66px;height:66px;
+  margin:0 auto 16px;
+  border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(124,198,255,.12);
+  border:1px solid rgba(124,198,255,.30);
+}
+.result-icon .material-symbols-outlined{ font-size:31px; color:var(--brand); }
+.result-icon.ok{ background:rgba(50,213,131,.12); border-color:rgba(50,213,131,.32); }
+.result-icon.ok .material-symbols-outlined{ color:#32D583; }
+
+/* ---------- role chooser (signup step 1) ----------
+   Four tappable cards, one per persona. Each is a full <button> so it's
+   keyboard-focusable and Enter-activatable for free. The chosen role advances
+   the form to step 2; a "change" affordance in step 2 comes back here. */
+.role-cards{
+  display:grid;
+  grid-template-columns:repeat(2,1fr);
+  gap:10px;
+  margin-bottom:8px;
+}
+.role-card{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  gap:6px;
+  padding:18px 16px;
+  min-height:118px;
+  text-align:left;
+  background:var(--c-card);
+  border:1px solid var(--c-border);
+  border-radius:var(--r-lg);
+  color:var(--c-text);
+  cursor:pointer;
+  transition:border-color .18s ease, background-color .18s ease, transform .12s ease, box-shadow .18s ease;
+}
+.role-card:hover{
+  border-color:color-mix(in srgb, var(--brand) 45%, var(--c-border));
+  background:var(--c-glass);
+  box-shadow:0 10px 30px rgba(0,0,0,.16);
+}
+[data-theme="light"] .role-card:hover{ box-shadow:0 12px 28px rgba(76,63,42,.10); }
+.role-card:active{ transform:scale(.98); }
+.role-card:focus-visible{ outline:2px solid var(--brand); outline-offset:2px; }
+.role-card .role-ic{
+  width:40px;height:40px;
+  display:flex;align-items:center;justify-content:center;
+  border-radius:14px;
+  background:rgba(124,198,255,.12);
+  border:1px solid rgba(124,198,255,.28);
+  color:var(--brand);
+  margin-bottom:2px;
+}
+.role-card .role-ic .material-symbols-outlined{ font-size:21px; }
+.role-card .role-name{ font-size:14.5px; font-weight:700; line-height:1.2; }
+.role-card .role-desc{ font-size:12px; color:var(--c-muted); line-height:1.4; }
+
+/* Step 2 header: the chosen role + a "change" link back to step 1. */
+.role-chosen{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:11px 13px;
+  background:rgba(124,198,255,.10);
+  border:1px solid rgba(124,198,255,.28);
+  border-radius:var(--r-md);
+  margin-bottom:18px;
+}
+.role-chosen .material-symbols-outlined{ color:var(--brand); font-size:20px; }
+.role-chosen .rc-name{ flex:1; font-size:13.5px; font-weight:600; }
+.role-chosen .rc-change{
+  background:none;border:0;
+  color:var(--brand);font-weight:600;font-size:12.5px;
+  cursor:pointer;
+}
+.role-chosen .rc-change:hover{ text-decoration:underline; }
+
+/* Screen-reader-only, for labels that would be visual clutter. */
+.sr-only{
+  position:absolute;
+  width:1px;height:1px;
+  padding:0;margin:-1px;
+  overflow:hidden;
+  clip:rect(0 0 0 0);
+  white-space:nowrap;
+  border:0;
+}
+
+/* Make the HTML hidden attribute always win over display rules */
+[hidden] { display: none !important; }

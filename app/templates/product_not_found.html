@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{# ==========================================================================
+   PRODUCT NOT FOUND — the 404 for /product/{slug}.
+
+   Served at status 404 by the page route (app/routers/pages.py), which catches
+   the NotFoundError itself: register_exception_handlers turns every
+   AppException into the JSON error envelope, which is right for /api/* and
+   wrong for somebody who followed a shared product link.
+
+   A product link is the most-shared URL in a shop, and the most likely to go
+   stale — the listing sells out, the seller delists it, the slug changes. So
+   this page's job is not to apologise, it is to keep the shopper moving: the
+   Shop is one tap away and the search that would find a replacement is the
+   primary action.
+
+   `slug` is the raw path segment, length-capped to 60 chars in the route and
+   escaped by Jinja on render.
+========================================================================== #}
+
+{% block content %}
+<div class="page pt-6 sm:pt-10 pb-10">
+
+    {# Icon beside the words, not above them: a centred stack of tile → heading
+       → paragraph → two buttons is five rows of one thing each, and on a phone
+       that is most of the screen for a message this short. #}
+    <div class="glass panel panel-pad">
+        <div class="flex items-start gap-3">
+            <span class="w-11 h-11 rounded-2xl bg-card border border-border flex items-center justify-center shrink-0" aria-hidden="true">
+                <span class="material-symbols-outlined text-[22px] text-muted">production_quantity_limits</span>
+            </span>
+            <div class="min-w-0">
+                <h1 class="font-display text-[15px] sm:text-base font-bold leading-tight">
+                    This product isn't available
+                </h1>
+                {% if slug %}
+                <p class="caption-text text-[13px] mt-1.5 leading-snug">
+                    We couldn't find <span class="font-semibold text-[var(--c-text)] break-all">{{ slug }}</span>
+                    in the catalogue. It may have sold out, been delisted, or the link may be mistyped.
+                </p>
+                {% else %}
+                <p class="caption-text text-[13px] mt-1.5 leading-snug">
+                    We couldn't find that product in the catalogue.
+                </p>
+                {% endif %}
+                <div class="flex flex-wrap gap-2 mt-3">
+                    <a href="/marketplace" class="btn-glow bg-primary text-background font-bold rounded-full px-4 py-2 text-[13px] inline-flex items-center gap-1.5">
+                        <span class="material-symbols-outlined text-[17px]">storefront</span>
+                        Browse the Shop
+                    </a>
+                    <a href="/discover" class="glass font-semibold rounded-full px-4 py-2 text-[13px] inline-flex items-center gap-1.5 hover-card">
+                        <span class="material-symbols-outlined text-[17px]">search</span>
+                        Search CartFlow
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# The catalogue is small enough that "here is everything else" is a real
+       answer rather than a consolation link. Same tile size as the Shop's rails. #}
+    {% if products %}
+    <section class="glass panel panel-pad mt-3" aria-labelledby="pnfPicks">
+        <h2 id="pnfPicks" class="font-display text-[15px] font-bold leading-tight">Popular in the Shop right now</h2>
+        <p class="caption-text text-[12.5px] mt-0.5 leading-snug">The best-selling listings on CartFlow today.</p>
+        <div class="flex gap-3 overflow-x-auto hide-scrollbar mt-3">
+            {% for p in products | sort(attribute="sold", reverse=true) | list %}
+            {% if loop.index <= 6 %}
+            <a href="/product/{{ p.slug }}" class="shrink-0 w-28 group">
+                <img src="{{ p.image }}" alt="{{ p.alt }}" loading="lazy" decoding="async"
+                     class="w-28 h-28 rounded-2xl object-cover">
+                <p class="text-[12px] font-semibold mt-1.5 line-clamp-2 leading-snug group-hover:text-primary transition-colors">{{ p.name }}</p>
+                <p class="text-[12px] font-bold mt-0.5">₦{{ "{:,}".format(p.price) }}</p>
+            </a>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+</div>
+{% endblock %}

@@ -1,0 +1,137 @@
+{# Verify email — the landing page for the emailed verification link.
+
+   Consumes ?token=<raw> on load and reports one of three outcomes. The
+   token is spent by a POST from here rather than by the link itself
+   being a GET: mail scanners and link-preview bots follow GET links
+   automatically, which would silently burn the token before the user
+   ever clicked it. #}
+{% extends "auth_base.html" %}
+
+{% block auth_title %}Verifying your email{% endblock %}
+{% block auth_sub %}One moment.{% endblock %}
+
+{% block auth_body %}
+
+<div id="workingPanel" class="result-panel">
+  <div class="skeleton" style="height:66px;width:66px;border-radius:50%;margin:0 auto 16px;"></div>
+  <div class="skeleton" style="height:20px;width:70%;margin:0 auto 10px;"></div>
+  <div class="skeleton" style="height:16px;width:50%;margin:0 auto;"></div>
+</div>
+
+<!-- verified -->
+<div id="okPanel" hidden>
+  <div class="result-panel">
+    <div class="result-icon ok">
+      <span class="material-symbols-outlined">check_circle</span>
+    </div>
+    <h2 class="auth-title" style="font-size:21px;">Email verified</h2>
+    <p class="auth-sub" style="margin-bottom:20px;">
+      Your account is all set. Welcome to CartFlow.
+    </p>
+  </div>
+  <a href="/login" class="btn btn-primary"><span class="btn-label">Continue to log in</span></a>
+</div>
+
+<!-- bad / expired token -->
+<div id="failPanel" hidden>
+  <div class="result-panel">
+    <div class="result-icon">
+      <span class="material-symbols-outlined">link_off</span>
+    </div>
+    <h2 class="auth-title" style="font-size:21px;" id="failTitle">Link expired</h2>
+    <p class="auth-sub" style="margin-bottom:20px;" id="failMessage"></p>
+  </div>
+
+  <form id="resendForm" novalidate>
+    <div class="field" id="emailField">
+      <label class="field-label" for="email">Email address</label>
+      <div class="control has-icon">
+        <span class="material-symbols-outlined lead-icon" aria-hidden="true">mail</span>
+        <input class="input" id="email" name="email" type="email"
+               autocomplete="email" placeholder="you@email.com"
+               aria-describedby="emailError">
+      </div>
+      <p class="field-error" id="emailError" role="alert" hidden>
+        <span class="material-symbols-outlined" aria-hidden="true">error</span>
+        <span class="err-text"></span>
+      </p>
+    </div>
+
+    <button type="submit" class="btn btn-primary" id="resendBtn" data-loading="false">
+      <span class="btn-label">Send a new link</span>
+    </button>
+  </form>
+
+  <p class="auth-alt"><a href="/login">Back to log in</a></p>
+</div>
+
+{% endblock %}
+
+{% block extra_script %}
+<script>
+(function () {
+  const token = new URLSearchParams(window.location.search).get('token');
+
+  const working = document.getElementById('workingPanel');
+  const ok      = document.getElementById('okPanel');
+  const fail    = document.getElementById('failPanel');
+  const header  = document.getElementById('authHeader');
+
+  function showOk() {
+    working.hidden = true;
+    ok.hidden = false;
+    if (header) header.hidden = true;
+  }
+
+  function showFail(title, message) {
+    working.hidden = true;
+    document.getElementById('failTitle').textContent = title;
+    document.getElementById('failMessage').textContent = message;
+    fail.hidden = false;
+    if (header) header.hidden = true;
+  }
+
+  (async function verify() {
+    if (!token) {
+      showFail(
+        'Nothing to verify',
+        'This page needs a verification link. Check your email for the message we sent, or request a new link below.'
+      );
+      return;
+    }
+    try {
+      await postJSON('/api/auth/verify-email', { token: token });
+      showOk();
+    } catch (err) {
+      /* No client-side guessing about what "already used" means — the
+         service distinguishes "you already verified" (which returns 200)
+         from "this link was superseded", so any error here is genuine. */
+      showFail('Link expired', errorMessage(err, 'This verification link is no longer valid.'));
+    }
+  })();
+
+  /* --- resend --- */
+  document.getElementById('resendForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearFieldError('email');
+
+    const email = document.getElementById('email').value.trim();
+    if (!email || !email.includes('@')) {
+      setFieldError('email', 'Enter the email address you signed up with.');
+      return;
+    }
+
+    const btn = document.getElementById('resendBtn');
+    setLoading(btn, true);
+    try {
+      const res = await postJSON('/api/auth/resend-verification', { email: email });
+      showToast(res.message || 'Check your email for the new link.');
+    } catch (err) {
+      setFieldError('email', errorMessage(err, 'Could not send a new link.'));
+    } finally {
+      setLoading(btn, false);
+    }
+  });
+})();
+</script>
+{% endblock %}

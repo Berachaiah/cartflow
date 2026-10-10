@@ -1,0 +1,1108 @@
+{% extends "base.html" %}
+{% from "partials/avatar.html" import avatar %}
+
+{# ==========================================================================
+   BUSINESS HUB — /dashboard (docs/product/16-business-hub.md).
+
+   THE HONESTY RULE FOR THIS PAGE. Doc 16 §30 lists seven tables — businesses,
+   business_locations, business_delivery_areas, business_status,
+   business_analytics, inventory, inventory_logs — and NONE of them exist. Nor do
+   products, orders, events, reviews or payouts. So every figure §5-6 asks for
+   (Today's Revenue, Pending Escrow, Products Sold, …) renders as a real ZERO
+   with an empty state behind it. The ₦48,200 / ₦13,000 / 12 / 3 numbers in §6
+   are the doc's EXAMPLE CARD LAYOUT, not seed data: printing them here would
+   tell a seller they had earned money they have not. Do not "fill in" this page.
+
+   What IS real, end to end:
+     - the gate: the business row the user owns (organizations.owner_user_id);
+     - its name, state and pickup address, editable via PATCH /api/business/profile;
+     - the follower count, from `user_follows` via app/services/follow.py;
+     - POST /api/auth/business/upgrade — the "Start selling" CTA for a
+       non-seller, the same endpoint the profile page offers.
+
+   Everything else is labelled with a "Soon" chip and names the thing it is
+   waiting on, so a seller can tell the difference between "you have none" and
+   "CartFlow can't do this yet". That distinction is the whole design of the page.
+
+   Context from app/routers/pages.py: `business` (the owned Organization, or None)
+   and `stats` (follower counts, only when `business` exists). Three server-side
+   states — signed out / no business / seller — chosen in the route, so a visitor
+   never receives hub markup at all.
+
+   Doc 16 §4's eight sections are one page with a sticky section switcher rather
+   than eight routes: on a phone the Hub should feel like tabs you swipe between,
+   and there is no per-section data to fetch yet that would justify a navigation.
+   When the endpoints in §31 land, each panel keeps its markup and gains a fetch.
+========================================================================== #}
+
+{% set biz_name = (business.short_name or business.official_name) if business else None %}
+{% set biz_category = business.type.name if (business and business.type) else None %}
+{% set biz_verified = business and business.status == 'active' %}
+
+{# --- section switcher (doc 16 §4, exact order) ------------------------
+   Customers and Reviews (§24-25) are not in §4's nav, so they live at the
+   bottom of Analytics where the rest of the read-only numbers are. #}
+{% set sections = [
+    {"key": "dashboard",  "label": "Dashboard",  "icon": "space_dashboard"},
+    {"key": "products",   "label": "Products",   "icon": "sell"},
+    {"key": "orders",     "label": "Orders",     "icon": "receipt_long"},
+    {"key": "events",     "label": "Events",     "icon": "event"},
+    {"key": "analytics",  "label": "Analytics",  "icon": "insights"},
+    {"key": "operations", "label": "Operations", "icon": "tune"},
+    {"key": "finance",    "label": "Finance",    "icon": "payments"},
+    {"key": "settings",   "label": "Settings",   "icon": "settings"}
+] %}
+
+{# --- reusable pieces --------------------------------------------------
+   Four of these used to be defined here, at slightly different sizes to the
+   identical macros in orders.html — which is exactly why moving between the two
+   pages felt like moving between two products. They now come from one place;
+   only `metric`, which nothing else uses, stays local. #}
+{% from "partials/ui.html" import soon, empty_state as empty, pending_row,
+                                  section_head as panel_title %}
+
+{# A metric card. `value` is passed already formatted; a real zero is left as a
+   zero and the caption explains it. Nine of the ten read ₦0 or 0 today, so the
+   value is sized to be scannable rather than to be a hero — a 30px zero
+   repeated ten times is a page that shouts nothing. #}
+{% macro metric(label, value, caption, icon, live=false) %}
+<div class="rounded-2xl border border-border bg-card p-3">
+    <div class="flex items-start justify-between gap-2">
+        <span class="text-[10.5px] font-semibold uppercase tracking-wide text-muted leading-tight">{{ label }}</span>
+        <span class="material-symbols-outlined text-[16px] {{ 'text-primary' if live else 'text-muted' }} shrink-0" aria-hidden="true">{{ icon }}</span>
+    </div>
+    <p class="font-display text-xl sm:text-2xl font-black mt-1 leading-none">{{ value }}</p>
+    <p class="caption-text text-[11px] mt-1 leading-snug">{{ caption }}</p>
+</div>
+{% endmacro %}
+
+
+{% block content %}
+
+{% if not current_user %}
+{# ============ STATE 1: signed out ============
+   Not a redirect: /dashboard is a link people paste and bookmark, and landing on
+   a page that explains itself beats being bounced to a form with no context.
+
+   Same horizontal arrangement as /orders' signed-out panel, for the same
+   reason: a 64px tile stacked over a 30px heading over prose over two
+   full-width buttons spent most of a phone screen saying "log in". #}
+<div class="page space-y-4">
+    <div class="glass panel panel-pad">
+        <div class="flex items-start gap-3">
+            <span class="w-10 h-10 rounded-2xl bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0" aria-hidden="true">
+                <span class="material-symbols-outlined text-[21px] text-primary">storefront</span>
+            </span>
+            <div class="min-w-0 flex-1">
+                <h1 class="font-display text-[15px] font-bold leading-tight">Business Hub</h1>
+                <p class="caption-text text-[12.5px] mt-1 leading-snug">
+                    Products, orders, pickup points and payouts in one place. Log in to open
+                    your Hub — or create an account and start selling.
+                </p>
+                <div class="flex items-center gap-2 mt-2.5 flex-wrap">
+                    <a href="/login?next=/dashboard"
+                       class="btn-glow bg-primary text-background font-bold rounded-full px-4 py-2 text-[13px]">Log in</a>
+                    <a href="/signup"
+                       class="glass font-semibold rounded-full px-4 py-2 text-[13px] hover-card">Create account</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    <a href="/marketplace" class="glass panel row-link">
+        <span class="row-icon"><span class="material-symbols-outlined text-[19px] text-muted" aria-hidden="true">storefront</span></span>
+        <span class="min-w-0 flex-1">
+            <span class="block text-[13.5px] font-semibold">Browse Shop instead</span>
+            <span class="block text-[11.5px] text-muted">You don't need an account to look around.</span>
+        </span>
+        <span class="material-symbols-outlined text-[20px] text-muted shrink-0" aria-hidden="true">chevron_right</span>
+    </a>
+</div>
+
+{% elif not business %}
+{# ============ STATE 2: signed in, no business (doc 16 §3) ============
+   The Hub is gated on the selling CAPABILITY, so this is not an error — it is
+   the front door. Same endpoint and same two fields as the profile page's CTA;
+   account_type is untouched by it, which the copy says out loud because it is
+   the question every student asks before tapping. #}
+<div class="page space-y-3">
+    <div class="glass panel panel-pad">
+        <div class="flex items-start gap-3">
+            <span class="w-10 h-10 rounded-2xl bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0" aria-hidden="true">
+                <span class="material-symbols-outlined text-[21px] text-primary">storefront</span>
+            </span>
+            <div class="min-w-0 flex-1">
+                <h1 class="font-display text-[15px] font-bold leading-tight">Start selling on CartFlow</h1>
+                <p class="caption-text text-[12.5px] mt-1 leading-snug">
+                    The Hub opens as soon as you set up a business. One step, and your account
+                    stays exactly as it is —
+                    {% if current_user.account_type == 'student' %}you'll still be a student{% else %}your profile doesn't change{% endif %}.
+                </p>
+            </div>
+        </div>
+
+        {# The four capabilities as a two-up grid, not a four-row list: each one
+           is three words and a line of prose, so stacking them left a column of
+           empty space the width of the panel. #}
+        <div class="grid sm:grid-cols-2 gap-x-3 gap-y-2 mt-3 pt-3 border-t border-border">
+            {% for item in [
+                ("sell", "List products", "Publish what you sell to Shop and your profile."),
+                ("receipt_long", "Take orders", "Confirm, prepare, hand off — payment held in escrow."),
+                ("storefront", "Set a pickup point", "Tell buyers exactly where to collect."),
+                ("insights", "See what's working", "Followers, views and sales in one view.")
+            ] %}
+            <div class="flex items-start gap-2.5">
+                <span class="w-7 h-7 rounded-lg bg-primary/15 flex items-center justify-center shrink-0" aria-hidden="true">
+                    <span class="material-symbols-outlined text-[16px] text-primary">{{ item[0] }}</span>
+                </span>
+                <span class="min-w-0">
+                    <span class="block text-[12.5px] font-semibold leading-tight">{{ item[1] }}</span>
+                    <span class="block caption-text text-[11.5px] leading-snug mt-0.5">{{ item[2] }}</span>
+                </span>
+            </div>
+            {% endfor %}
+        </div>
+
+        <button type="button" data-open-sheet="sellSheet"
+                class="btn-glow w-full mt-3 bg-primary text-background font-bold rounded-full py-2.5 text-[13.5px] flex items-center justify-center gap-2">
+            <span class="material-symbols-outlined text-[18px]" aria-hidden="true">add_business</span>
+            Set up my business
+        </button>
+        <p class="caption-text text-[11.5px] text-center mt-2">Free to set up. You can change the details later.</p>
+    </div>
+</div>
+
+{% else %}
+{# ============ STATE 3: the Hub ============ #}
+<div class="page-wide xl:grid xl:grid-cols-[minmax(0,1fr)_300px] xl:gap-6 xl:items-start">
+
+<div class="min-w-0">
+
+    <!-- ===================== BUSINESS HEADER ===================== -->
+    <section class="glass panel panel-pad">
+        <div class="flex items-start gap-3">
+            {# No Media model, so the logo is the same default picture used for
+               avatars. Doc §26 lists Logo as editable; it needs uploads first. #}
+            {{ avatar(business.official_name, business.slug, "w-12 h-12", "rounded-2xl", "shrink-0", "text-[15px]") }}
+            <div class="min-w-0 flex-1">
+                {# Clamped to two lines, not truncated. "Covenant University Print
+                   Hub" is a perfectly ordinary business name and this is that
+                   business's own dashboard — the one screen where its full name
+                   is least negotiable. #}
+                <h1 class="font-display text-[17px] font-black leading-tight line-clamp-2" id="hubBizName">{{ biz_name }}</h1>
+                <p class="caption-text text-[12px] mt-0.5 flex items-center gap-1.5 flex-wrap">
+                    {% if biz_category %}<span>{{ biz_category }}</span><span class="opacity-40">·</span>{% endif %}
+                    <span id="hubBizState">{{ business.state or 'State not set' }}</span>
+                </p>
+                <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                    {% if biz_verified %}
+                    <span class="inline-flex items-center gap-1 rounded-full bg-success/15 text-success px-2 py-0.5 text-[10.5px] font-bold">
+                        <span class="material-symbols-outlined text-[13px]" aria-hidden="true">verified</span>Verified
+                    </span>
+                    {% else %}
+                    {# 'unverified' is every new business's status and an admin
+                       decision to change (a seller cannot verify themselves), so
+                       this states the fact without implying the seller can fix
+                       it or that selling is blocked. #}
+                    <span class="inline-flex items-center gap-1 rounded-full glass px-2 py-0.5 text-[10.5px] font-semibold text-muted">
+                        <span class="material-symbols-outlined text-[13px]" aria-hidden="true">hourglass_top</span>Verification pending
+                    </span>
+                    {% endif %}
+                    <a href="/@{{ current_user.username }}" class="inline-flex items-center gap-1 rounded-full glass px-2 py-0.5 text-[10.5px] font-semibold hover-card">
+                        <span class="material-symbols-outlined text-[13px]" aria-hidden="true">open_in_new</span>View public profile
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        {# Business Status (doc §19) has no column, so this is a LABEL, not a
+           control: it says what buyers currently see (nothing) rather than
+           offering four options that wouldn't save. The real picker arrives with
+           the business_status table. #}
+        <div class="mt-3 pt-3 border-t border-border flex items-center justify-between gap-3">
+            <div class="min-w-0">
+                <p class="text-[13px] font-semibold flex items-center gap-2 flex-wrap">
+                    Business status {{ soon("Needs the business_status table (doc 16 §30)") }}
+                </p>
+                <p class="caption-text text-[11.5px] mt-0.5 leading-snug">Open / Busy / Closed / Holiday isn't stored yet, so buyers don't see a status.</p>
+            </div>
+            <span class="material-symbols-outlined text-[19px] text-muted shrink-0" aria-hidden="true">lock</span>
+        </div>
+    </section>
+
+    <!-- ===================== SECTION SWITCHER (doc 16 §4) ===================== -->
+    <div class="sticky top-14 sm:top-16 z-30 -mx-3 sm:-mx-6 px-3 sm:px-6 py-2 mt-3 blur-bg border-b border-border">
+        <div class="flex gap-1.5 overflow-x-auto hide-scrollbar" role="tablist" aria-label="Business Hub sections">
+            {% for s in sections %}
+            <button type="button" role="tab" class="hub-tab shrink-0 rounded-full px-3 py-1.5 text-[12.5px] font-semibold flex items-center gap-1.5 {{ 'hub-tab-on' if loop.first else '' }}"
+                    data-hub-tab="{{ s.key }}" aria-selected="{{ 'true' if loop.first else 'false' }}" aria-controls="hubPanel-{{ s.key }}">
+                <span class="material-symbols-outlined text-[16px]" aria-hidden="true">{{ s.icon }}</span>{{ s.label }}
+            </button>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="mt-3 space-y-4">
+
+        <!-- ===================== DASHBOARD (doc 16 §5-6) ===================== -->
+        <section id="hubPanel-dashboard" class="hub-panel space-y-4" role="tabpanel" aria-labelledby="hubTab-dashboard">
+
+            {# Said once, at the top, instead of on every zero below. A seller
+               seeing ten ₦0 cards deserves to know why in one sentence. #}
+            <div class="rounded-2xl border border-primary/30 bg-primary/10 p-3 flex items-start gap-2.5">
+                <span class="material-symbols-outlined text-[18px] text-primary shrink-0 mt-0.5" aria-hidden="true">info</span>
+                <p class="text-[12.5px] leading-snug min-w-0">
+                    <span class="font-semibold">Your Hub is set up.</span>
+                    Sales, orders and payouts read <span class="font-semibold">₦0</span> because CartFlow
+                    isn't taking payments yet — these are your real numbers, not placeholders.
+                    Your followers are live now; the rest fills in as each feature ships.
+                </p>
+            </div>
+
+            {# Doc §5's ten metrics, in its order. Only New Followers is live. #}
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+                {{ metric("Today's revenue", "₦0", "No sales yet today.", "payments") }}
+                {{ metric("Pending orders", "0", "Nothing waiting on you.", "pending_actions") }}
+                {{ metric("Pending escrow", "₦0", "Held until delivery is confirmed.", "lock_clock") }}
+                {{ metric("Products sold", "0", "All time.", "shopping_bag") }}
+                {{ metric("Active products", "0", "Nothing listed yet.", "sell") }}
+                {{ metric("Active events", "0", "No events on sale.", "event") }}
+                {{ metric("Followers", stats.followers, "People following your account.", "group", live=true) }}
+                {{ metric("Unread messages", "0", "Messaging isn't built yet.", "chat_bubble") }}
+            </div>
+
+            <!-- Low stock (§9) + Recent reviews (§25) — both empty, for
+                 different reasons, so each says which. -->
+            <div class="grid md:grid-cols-2 gap-3">
+                <div class="glass panel panel-pad">
+                    <h3 class="text-[13px] font-semibold flex items-center gap-2 flex-wrap">
+                        Low stock alerts {{ soon("Needs the inventory table (doc 16 §30)") }}
+                    </h3>
+                    <p class="caption-text mt-2 leading-relaxed">
+                        Once you're listing products, anything that drops below your
+                        threshold shows up here — <span class="font-semibold">Only 3 left</span> — and as a notification.
+                    </p>
+                </div>
+                <div class="glass panel panel-pad">
+                    <h3 class="text-[13px] font-semibold flex items-center gap-2 flex-wrap">
+                        Recent reviews {{ soon("Needs the reviews table") }}
+                    </h3>
+                    <p class="caption-text mt-2 leading-relaxed">
+                        Buyers review after delivery. You'll be able to reply to
+                        every review — and you won't be able to delete them.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Quick actions: the two REAL ones first. -->
+            <div>
+                {{ panel_title("Quick actions", "What you can do in the Hub today.") }}
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <button type="button" data-open-sheet="pickupSheet" class="quick-action">
+                        <span class="material-symbols-outlined text-[22px] text-primary" aria-hidden="true">location_on</span>
+                        <span class="text-xs font-semibold text-center leading-tight">Pickup address</span>
+                    </button>
+                    <button type="button" data-open-sheet="bizSheet" class="quick-action">
+                        <span class="material-symbols-outlined text-[22px] text-primary" aria-hidden="true">edit</span>
+                        <span class="text-xs font-semibold text-center leading-tight">Business details</span>
+                    </button>
+                    <a href="/@{{ current_user.username }}" class="quick-action">
+                        <span class="material-symbols-outlined text-[22px]" aria-hidden="true">person</span>
+                        <span class="text-xs font-semibold text-center leading-tight">Public profile</span>
+                    </a>
+                    <button type="button" id="hubShareBtn" class="quick-action">
+                        <span class="material-symbols-outlined text-[22px]" aria-hidden="true">ios_share</span>
+                        <span class="text-xs font-semibold text-center leading-tight">Share shop</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===================== PRODUCTS (doc 16 §7-9) ===================== -->
+        <section id="hubPanel-products" class="hub-panel space-y-4" role="tabpanel" aria-labelledby="hubTab-products" hidden>
+            {{ panel_title("Products", "Create, price, restock and discount what you sell.") }}
+            {{ empty("sell", "No products yet",
+                     "There's no products table on CartFlow yet, so nothing can be listed — including by us. When it ships, what you add here appears in Shop and on your profile straight away.",
+                     "See what Shop looks like", "/marketplace", tone="quiet") }}
+            <div class="glass panel panel-pad divide-y divide-border">
+                <h3 class="text-[13px] font-semibold pb-2.5">Coming to this section</h3>
+                {{ pending_row("add_box", "Create &amp; edit products",
+                               "Name, price, images, description, category, stock. Edit, archive or delete any time.",
+                               "Needs the products table") }}
+                {{ pending_row("inventory_2", "Inventory",
+                               "Quantity, reserved and available per product — reserved updates itself when a payment succeeds.",
+                               "Needs the inventory table (doc 16 §30)") }}
+                {{ pending_row("percent", "Discounts",
+                               "Set a was-price and CartFlow shows the percentage off across Shop.",
+                               "Needs the products table") }}
+                {{ pending_row("notification_important", "Low stock threshold",
+                               "Pick the level that counts as low, per product, and get notified when you hit it.",
+                               "Needs the inventory_logs table (doc 16 §30)") }}
+            </div>
+        </section>
+
+        <!-- ===================== ORDERS (doc 16 §10) ===================== -->
+        <section id="hubPanel-orders" class="hub-panel space-y-4" role="tabpanel" aria-labelledby="hubTab-orders" hidden>
+            {{ panel_title("Orders", "Confirm, prepare, hand off — and see when escrow releases.") }}
+            {{ empty("receipt_long", "No orders yet",
+                     "Orders arrive here the moment a buyer pays. You'll confirm each one, mark it Preparing, then Ready for pickup or Delivered.",
+                     "Open my orders page", "/orders", tone="quiet") }}
+            <div class="glass panel panel-pad">
+                <h3 class="text-[13px] font-semibold flex items-center gap-2 flex-wrap">
+                    The order flow you'll get {{ soon("Needs the orders table") }}
+                </h3>
+                <ol class="mt-3 space-y-2.5">
+                    {% for step in [
+                        ("Paid", "Buyer pays. The money sits in escrow — not with you, not with them."),
+                        ("Confirmed", "You accept the order."),
+                        ("Preparing", "You're packing it."),
+                        ("Ready for pickup / Out for delivery", "Depending on how the buyer chose to receive it."),
+                        ("Delivered", "Buyer confirms receipt, escrow releases to you.")
+                    ] %}
+                    <li class="flex items-start gap-3">
+                        <span class="w-6 h-6 rounded-full bg-card border border-border flex items-center justify-center shrink-0 text-[11px] font-bold text-muted">{{ loop.index }}</span>
+                        <span class="min-w-0">
+                            <span class="block text-sm font-semibold">{{ step[0] }}</span>
+                            <span class="block caption-text leading-relaxed">{{ step[1] }}</span>
+                        </span>
+                    </li>
+                    {% endfor %}
+                </ol>
+            </div>
+        </section>
+
+        <!-- ===================== EVENTS (doc 16 §11-12, doc 17) ===================== -->
+        <section id="hubPanel-events" class="hub-panel space-y-4" role="tabpanel" aria-labelledby="hubTab-events" hidden>
+            {{ panel_title("Events", "Sell e-tickets and check people in at the door.") }}
+            {{ empty("event", "No events yet",
+                     "Events and e-ticketing are the next milestone: create an event, sell ticket types, then scan tickets at the entrance with your phone camera.") }}
+            <div class="glass panel panel-pad divide-y divide-border">
+                <h3 class="text-[13px] font-semibold pb-2.5">Planned</h3>
+                {{ pending_row("add_circle", "Create &amp; publish events",
+                               "Date, venue, cover image, visibility, free or paid ticket types, refund policy.",
+                               "Needs the events tables (doc 17)") }}
+                {{ pending_row("confirmation_number", "Ticket sales",
+                               "Multiple ticket types per event, each with its own price and quantity.",
+                               "Needs the event_ticket_types table") }}
+                {{ pending_row("qr_code_scanner", "QR check-in",
+                               "Scan a ticket, verify it belongs to this event and hasn't been used, admit and mark it used.",
+                               "Needs the event_tickets + event_checkins tables") }}
+                {{ pending_row("groups", "Attendance",
+                               "Who bought, who showed up, and how the event performed.",
+                               "Needs the event_checkins table") }}
+            </div>
+        </section>
+
+        <!-- ===================== ANALYTICS (doc 16 §13, §24-25) ===================== -->
+        <section id="hubPanel-analytics" class="hub-panel space-y-4" role="tabpanel" aria-labelledby="hubTab-analytics" hidden>
+            {{ panel_title("Analytics", "Followers are live. The rest needs sales data to be worth showing.") }}
+
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+                {{ metric("Followers", stats.followers, "Live, from your profile.", "group", live=true) }}
+                {{ metric("Following", stats.following, "Accounts you follow.", "person_add", live=true) }}
+                {{ metric("Revenue", "₦0", "No sales yet.", "payments") }}
+                {{ metric("Orders", "0", "No orders yet.", "receipt_long") }}
+                {{ metric("Profile views", "0", "View counting isn't built.", "visibility") }}
+                {{ metric("Conversion", "—", "Needs views and orders first.", "conversion_path") }}
+                {{ metric("Customers", "0", "Buyers who completed an order.", "person") }}
+                {{ metric("Repeat customers", "0", "Bought from you more than once.", "repeat") }}
+            </div>
+
+            <div class="glass panel panel-pad divide-y divide-border">
+                <h3 class="text-[13px] font-semibold pb-2.5">Also planned here</h3>
+                {{ pending_row("trending_up", "Top products, posts and events",
+                               "Ranked by revenue and by engagement, over a period you choose.",
+                               "Needs the business_analytics table (doc 16 §30)") }}
+                {{ pending_row("schedule", "Message response time",
+                               "How quickly you reply to buyers — buyers see a fast-reply signal.",
+                               "Needs messaging (doc 10)") }}
+                {{ pending_row("star", "Reviews",
+                               "Every review on your products, with a reply box. Replies are yours; deletions aren't — reviews can't be removed by the seller.",
+                               "Needs the reviews table") }}
+                {{ pending_row("visibility_off", "What you'll never see",
+                               "Who added your product to their cart. That stays private to the buyer (doc 16 §24).",
+                               "By design, not pending") }}
+            </div>
+        </section>
+        <!-- ===================== OPERATIONS (doc 16 §14-20) ===================== -->
+        <section id="hubPanel-operations" class="hub-panel space-y-4" role="tabpanel" aria-labelledby="hubTab-operations" hidden>
+            {{ panel_title("Operations", "How buyers reach you, and where they collect.") }}
+
+            {# THE REAL ONE. `organizations.pickup_address` has existed since
+               signup and, until this page, nothing could write it — a graduated
+               seller was told to update an address with no way to do it. Doc §17
+               wants multiple named pickup locations; there is one column, so
+               there is one address, and the copy says so rather than pretending
+               the list is empty. #}
+            <div class="glass panel panel-pad">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <h3 class="font-semibold text-sm flex items-center gap-2">
+                            <span class="material-symbols-outlined text-[19px] text-primary" aria-hidden="true">location_on</span>
+                            Pickup address
+                        </h3>
+                        <p class="caption-text mt-0.5">Buyers who choose pickup collect from here.</p>
+                    </div>
+                    <button type="button" data-open-sheet="pickupSheet"
+                            class="glass rounded-full px-3.5 py-2 text-xs font-bold shrink-0 hover-card">
+                        {{ 'Change' if business.pickup_address else 'Add' }}
+                    </button>
+                </div>
+                <div class="mt-3 rounded-2xl border border-border p-3.5" id="pickupDisplay">
+                    {% if business.pickup_address %}
+                    <p class="text-sm leading-relaxed" id="pickupValue">{{ business.pickup_address }}</p>
+                    {% else %}
+                    <p class="caption-text" id="pickupValue">No pickup address set. Buyers can't collect from you until you add one.</p>
+                    {% endif %}
+                </div>
+                {% if current_user.graduated_at %}
+                {# The other half of the graduation flow. set_graduation() returns
+                   needs_pickup_update=True for a seller; this is where they land. #}
+                <p class="mt-3 text-xs leading-relaxed rounded-2xl bg-accent/10 border border-accent/30 p-3">
+                    You've marked yourself as graduated — if this was a campus pickup point, check that it's still right.
+                </p>
+                {% endif %}
+                <p class="caption-text mt-3 flex items-center gap-2 flex-wrap">
+                    Multiple named pickup locations {{ soon("Needs the business_locations table (doc 16 §30)") }}
+                </p>
+            </div>
+
+            <div class="glass panel panel-pad divide-y divide-border">
+                <h3 class="text-[13px] font-semibold pb-2.5">Delivery &amp; availability</h3>
+                {{ pending_row("local_shipping", "Delivery settings",
+                               "Offer pickup, your own delivery, or both. Buyers pick at checkout.",
+                               "Needs a delivery-options column on the business") }}
+                {{ pending_row("map", "Delivery coverage",
+                               "Choose where you deliver — Bells University, Ota, Ogun State, Lagos, Nationwide — and buyers see it before they pay.",
+                               "Needs the business_delivery_areas table (doc 16 §30)") }}
+                {{ pending_row("storefront", "Business status",
+                               "🟢 Open, 🟡 Busy, 🔴 Closed, 🌴 Holiday. Shown on your profile so buyers know before they order.",
+                               "Needs the business_status table (doc 16 §30)") }}
+                {{ pending_row("my_location", "Update current location",
+                               "A one-tap update for when you've moved temporarily.",
+                               "Needs the business_locations table (doc 16 §30)") }}
+                {{ pending_row("schedule", "Operating hours",
+                               "Optional opening hours per day of the week.",
+                               "Needs an operating-hours table") }}
+            </div>
+        </section>
+
+        <!-- ===================== FINANCE (doc 16 §21-23, doc 15) ===================== -->
+        <section id="hubPanel-finance" class="hub-panel space-y-4" role="tabpanel" aria-labelledby="hubTab-finance" hidden>
+            {{ panel_title("Finance", "Escrow, payouts and what you've actually earned.") }}
+
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+                {{ metric("Revenue", "₦0", "All completed sales.", "payments") }}
+                {{ metric("Pending escrow", "₦0", "Paid, not yet released.", "lock_clock") }}
+                {{ metric("Released escrow", "₦0", "Cleared to you.", "lock_open") }}
+                {{ metric("Refunds", "₦0", "Returned to buyers.", "undo") }}
+                {{ metric("Payouts", "₦0", "Paid into your bank.", "account_balance") }}
+                {{ metric("Commission", "₦0", "CartFlow's cut of your sales.", "percent") }}
+                {{ metric("Net earnings", "₦0", "Revenue minus refunds and commission.", "savings") }}
+                {{ metric("Next payout", "—", "Set after your first released order.", "event_upcoming") }}
+            </div>
+
+            {# Escrow is the part sellers most need to understand BEFORE their
+               first sale, so it's explained even though the balance is zero.
+               Wording follows doc 15. #}
+            <div class="panel panel-pad border border-primary/30 bg-primary/10">
+                <h3 class="font-semibold text-sm flex items-center gap-2">
+                    <span class="material-symbols-outlined text-[19px] text-primary" aria-hidden="true">shield</span>
+                    How you get paid
+                </h3>
+                <p class="text-sm mt-2 leading-relaxed">
+                    A buyer's payment goes into escrow, not straight to you. It's
+                    released once the order is delivered and confirmed — which is
+                    also what protects you: a buyer can't take the goods and
+                    reverse the payment. Released money is then paid out to your
+                    bank account.
+                </p>
+            </div>
+
+            <div class="glass panel panel-pad divide-y divide-border">
+                <h3 class="text-[13px] font-semibold pb-2.5">Payout history &amp; bank account</h3>
+                {{ pending_row("history", "Payout history",
+                               "Amount, order, date, escrow release date and status for every payout.",
+                               "Needs the payouts table (doc 15)") }}
+                {{ pending_row("account_balance", "Bank account",
+                               "Bank, account number and account name — the list of banks comes from the payment provider, so it's always current.",
+                               "Needs a payment provider connected") }}
+                {{ pending_row("request_quote", "Receipts",
+                               "A receipt per order, for you and the buyer.",
+                               "Needs the orders table") }}
+            </div>
+        </section>
+
+        <!-- ===================== SETTINGS (doc 16 §26) ===================== -->
+        <section id="hubPanel-settings" class="hub-panel space-y-4" role="tabpanel" aria-labelledby="hubTab-settings" hidden>
+            {{ panel_title("Settings", "Your business details, and where the rest of your account lives.") }}
+
+            {# Real, editable: the three columns organizations actually has.
+                 PATCH /api/business/profile #}
+            <div class="glass panel panel-pad">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <h3 class="text-[13px] font-semibold">Business details</h3>
+                        <p class="caption-text mt-0.5">Shown wherever your shop appears.</p>
+                    </div>
+                    <button type="button" data-open-sheet="bizSheet"
+                            class="glass rounded-full px-3.5 py-2 text-xs font-bold shrink-0 hover-card">Edit</button>
+                </div>
+                <dl class="mt-3 divide-y divide-border">
+                    <div class="flex items-start justify-between gap-4 py-2.5">
+                        <dt class="caption-text shrink-0">Name</dt>
+                        <dd class="text-sm font-semibold text-right min-w-0 break-words" id="setBizName">{{ business.official_name }}</dd>
+                    </div>
+                    <div class="flex items-start justify-between gap-4 py-2.5">
+                        <dt class="caption-text shrink-0">State</dt>
+                        <dd class="text-sm font-semibold text-right min-w-0" id="setBizState">{{ business.state or '—' }}</dd>
+                    </div>
+                    <div class="flex items-start justify-between gap-4 py-2.5">
+                        <dt class="caption-text shrink-0">Pickup</dt>
+                        <dd class="text-sm font-semibold text-right min-w-0 break-words" id="setBizPickup">{{ business.pickup_address or '—' }}</dd>
+                    </div>
+                    <div class="flex items-start justify-between gap-4 py-2.5">
+                        <dt class="caption-text shrink-0">Category</dt>
+                        <dd class="text-sm font-semibold text-right min-w-0">{{ biz_category or '—' }}</dd>
+                    </div>
+                    <div class="flex items-start justify-between gap-4 py-2.5">
+                        <dt class="caption-text shrink-0">Verification</dt>
+                        <dd class="text-sm font-semibold text-right min-w-0">{{ 'Verified' if biz_verified else 'Pending' }}</dd>
+                    </div>
+                </dl>
+                <p class="caption-text mt-3 leading-relaxed">
+                    Category and verification are set by CartFlow — a business can't
+                    verify itself, which is what makes the badge worth anything.
+                </p>
+            </div>
+
+            {# Doc §26 also lists Username, Bio, Logo, Website and Contact.
+               Username and bio are ACCOUNT fields and already editable on the
+               profile page, so this points there instead of building a second
+               editor for the same column. The other three have no column. #}
+            <div class="glass panel panel-pad">
+                <h3 class="text-[13px] font-semibold">Your account</h3>
+                <p class="caption-text mt-0.5 leading-relaxed">
+                    Your name, handle, bio, graduation status and logging out all live on your profile.
+                </p>
+                <a href="/@{{ current_user.username }}" class="mt-3 w-full glass rounded-2xl p-3 flex items-center gap-3 hover-card">
+                    {{ avatar(current_user.display_name, current_user.username, "w-9 h-9", "rounded-xl", "shrink-0", "text-xs", src=avatar_src(current_user, "sm")) }}
+                    <span class="min-w-0 flex-1 text-left">
+                        <span class="block text-sm font-semibold truncate">{{ current_user.display_name }}</span>
+                        <span class="block caption-text truncate">@{{ current_user.username }}</span>
+                    </span>
+                    <span class="material-symbols-outlined text-[20px] text-muted shrink-0" aria-hidden="true">chevron_right</span>
+                </a>
+            </div>
+
+            <div class="glass panel panel-pad divide-y divide-border">
+                <h3 class="text-[13px] font-semibold pb-2.5">Not editable yet</h3>
+                {{ pending_row("image", "Logo",
+                               "A placeholder stands in for now. A real logo needs image uploads.",
+                               "Needs media uploads") }}
+                {{ pending_row("language", "Website",
+                               "A link out from your shop.",
+                               "Needs a website column on the business") }}
+                {{ pending_row("call", "Contact information",
+                               "A phone number or email buyers can reach you on.",
+                               "Needs contact columns on the business") }}
+            </div>
+        </section>
+
+    </div>
+</div>
+
+    <!-- ===================== DESKTOP ASIDE ===================== -->
+    {# xl+ only. Nothing here is essential — it repeats what the panels say — so
+       phones lose nothing by not rendering it. #}
+    <aside class="hidden xl:block space-y-4 sticky top-24">
+        <div class="glass panel panel-pad">
+            <h3 class="text-[13px] font-semibold">At a glance</h3>
+            <dl class="mt-3 divide-y divide-border">
+                <div class="flex items-center justify-between gap-3 py-2">
+                    <dt class="caption-text">Followers</dt>
+                    <dd class="text-sm font-bold">{{ stats.followers }}</dd>
+                </div>
+                <div class="flex items-center justify-between gap-3 py-2">
+                    <dt class="caption-text">Products</dt>
+                    <dd class="text-sm font-bold">0</dd>
+                </div>
+                <div class="flex items-center justify-between gap-3 py-2">
+                    <dt class="caption-text">Open orders</dt>
+                    <dd class="text-sm font-bold">0</dd>
+                </div>
+                <div class="flex items-center justify-between gap-3 py-2">
+                    <dt class="caption-text">Pickup set</dt>
+                    <dd class="text-sm font-bold" id="asidePickup">{{ 'Yes' if business.pickup_address else 'No' }}</dd>
+                </div>
+            </dl>
+        </div>
+
+        <div class="glass panel panel-pad">
+            <h3 class="text-[13px] font-semibold">Set-up checklist</h3>
+            <ul class="mt-3 space-y-2.5">
+                <li class="flex items-start gap-2.5">
+                    <span class="material-symbols-outlined text-[19px] text-success shrink-0" aria-hidden="true">check_circle</span>
+                    <span class="text-sm min-w-0">Business created</span>
+                </li>
+                <li class="flex items-start gap-2.5">
+                    <span class="material-symbols-outlined text-[19px] shrink-0 {{ 'text-success' if business.state else 'text-muted' }}" aria-hidden="true">{{ 'check_circle' if business.state else 'radio_button_unchecked' }}</span>
+                    <span class="text-sm min-w-0">State set</span>
+                </li>
+                <li class="flex items-start gap-2.5" id="asideCheckPickup">
+                    <span class="material-symbols-outlined text-[19px] shrink-0 {{ 'text-success' if business.pickup_address else 'text-muted' }}" aria-hidden="true">{{ 'check_circle' if business.pickup_address else 'radio_button_unchecked' }}</span>
+                    <span class="text-sm min-w-0">Pickup address added</span>
+                </li>
+                <li class="flex items-start gap-2.5">
+                    <span class="material-symbols-outlined text-[19px] text-muted shrink-0" aria-hidden="true">radio_button_unchecked</span>
+                    <span class="text-sm min-w-0 caption-text">First product listed — waiting on products</span>
+                </li>
+            </ul>
+        </div>
+
+        <div class="glass panel panel-pad">
+            <h3 class="text-[13px] font-semibold">Selling on CartFlow</h3>
+            <p class="caption-text mt-2 leading-relaxed">
+                Payments are held in escrow until delivery is confirmed, so buyers
+                trust new shops and you don't carry the risk of a reversal.
+            </p>
+            <a href="/marketplace" class="inline-flex items-center gap-1.5 mt-3 text-sm font-semibold text-primary">
+                See how Shop looks<span class="material-symbols-outlined text-[18px]" aria-hidden="true">chevron_right</span>
+            </a>
+        </div>
+    </aside>
+
+</div>
+{% endif %}
+{% endblock %}
+
+
+{% block modals %}
+{% if current_user and not business %}
+<!-- ---------- Start selling (POST /api/auth/business/upgrade) ----------
+     The same two fields the business signup path collects — name + state. No
+     type picker: the service defaults to SME. On success the page RELOADS,
+     because owning a business changes what this route renders server-side.
+     Deliberately the same sheet as profile.html's: two entry points, one flow,
+     so a seller can't end up with two businesses depending on where they tapped
+     (the service also refuses a second one). -->
+<div id="sellSheet" class="overlay" role="dialog" aria-modal="true" aria-labelledby="sellSheetTitle">
+    <div class="sheet glass w-full sm:max-w-md rounded-t-[20px] sm:rounded-[20px] overflow-hidden shadow-card">
+        <div class="flex items-center justify-between px-5 pt-5 pb-3">
+            <h3 id="sellSheetTitle" class="font-display text-lg font-bold">Set up your business</h3>
+            <button type="button" data-close-sheet aria-label="Close"
+                    class="w-9 h-9 rounded-full glass flex items-center justify-center">
+                <span class="material-symbols-outlined text-[20px]">close</span>
+            </button>
+        </div>
+        <form id="sellForm" class="px-5 pb-[calc(20px+var(--safe-b))] sm:pb-5 space-y-4" novalidate>
+            <p class="caption-text text-sm leading-relaxed">
+                This creates a business you own and opens your Hub. Your account type doesn't change —
+                {% if current_user.account_type == 'student' %}you stay a student{% else %}your profile stays as it is{% endif %}.
+            </p>
+            <div>
+                <label for="sellName" class="block text-sm font-semibold mb-1.5">Business name</label>
+                <input id="sellName" name="business_name" type="text" maxlength="255" required
+                       placeholder="e.g. RetroVibe Apparel" autocomplete="organization"
+                       class="input w-full rounded-2xl px-4 py-3 text-sm">
+            </div>
+            <div>
+                <label for="sellState" class="block text-sm font-semibold mb-1.5">State <span class="text-muted font-normal">(optional)</span></label>
+                <select id="sellState" name="state" class="input w-full rounded-2xl px-4 py-3 text-sm">
+                    <option value="">Select a state</option>
+                </select>
+            </div>
+            <p id="sellError" class="text-sm text-danger hidden" role="alert"></p>
+            <div class="flex gap-3 pt-1">
+                <button type="button" data-close-sheet class="glass flex-1 font-semibold rounded-full py-3 text-sm hover-card">Cancel</button>
+                <button type="submit" id="sellSaveBtn" class="btn-glow flex-1 bg-primary text-background font-bold rounded-full py-3 text-sm">Create business</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{% if business %}
+<!-- ---------- Pickup address (PATCH /api/business/profile) ----------
+     The write that closes the graduation dead-end. Submitting an empty box
+     CLEARS the address (the schema turns "" into null and the service applies
+     the key), which is why the button says Remove when the box is emptied — a
+     seller who no longer has a pickup point must be able to say so, not just
+     overwrite it with something false. -->
+<div id="pickupSheet" class="overlay" role="dialog" aria-modal="true" aria-labelledby="pickupSheetTitle">
+    <div class="sheet glass w-full sm:max-w-md rounded-t-[20px] sm:rounded-[20px] overflow-hidden shadow-card">
+        <div class="flex items-center justify-between px-5 pt-5 pb-3">
+            <h3 id="pickupSheetTitle" class="font-display text-lg font-bold">Pickup address</h3>
+            <button type="button" data-close-sheet aria-label="Close"
+                    class="w-9 h-9 rounded-full glass flex items-center justify-center">
+                <span class="material-symbols-outlined text-[20px]">close</span>
+            </button>
+        </div>
+        <form id="pickupForm" class="px-5 pb-[calc(20px+var(--safe-b))] sm:pb-5 space-y-4" novalidate>
+            <p class="caption-text text-sm leading-relaxed">
+                Where buyers collect their orders. Be specific enough to find —
+                a gate, a hall, a shop number.
+            </p>
+            <div>
+                <label for="pickupInput" class="block text-sm font-semibold mb-1.5">Address</label>
+                <textarea id="pickupInput" name="pickup_address" rows="3" maxlength="500"
+                          placeholder="e.g. Main Gate, Bells University, Ota"
+                          class="input w-full rounded-2xl px-4 py-3 text-sm resize-none">{{ business.pickup_address or '' }}</textarea>
+                <p class="caption-text mt-1.5 text-right"><span id="pickupCount">0</span>/500</p>
+            </div>
+            <p id="pickupError" class="text-sm text-danger hidden" role="alert"></p>
+            <div class="flex gap-3">
+                <button type="button" data-close-sheet class="glass flex-1 font-semibold rounded-full py-3 text-sm hover-card">Cancel</button>
+                <button type="submit" id="pickupSaveBtn" class="btn-glow flex-1 bg-primary text-background font-bold rounded-full py-3 text-sm">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ---------- Business details (PATCH /api/business/profile) ---------- -->
+<div id="bizSheet" class="overlay" role="dialog" aria-modal="true" aria-labelledby="bizSheetTitle">
+    <div class="sheet glass w-full sm:max-w-md rounded-t-[20px] sm:rounded-[20px] overflow-hidden shadow-card">
+        <div class="flex items-center justify-between px-5 pt-5 pb-3">
+            <h3 id="bizSheetTitle" class="font-display text-lg font-bold">Business details</h3>
+            <button type="button" data-close-sheet aria-label="Close"
+                    class="w-9 h-9 rounded-full glass flex items-center justify-center">
+                <span class="material-symbols-outlined text-[20px]">close</span>
+            </button>
+        </div>
+        <form id="bizForm" class="px-5 pb-[calc(20px+var(--safe-b))] sm:pb-5 space-y-4" novalidate>
+            <div>
+                <label for="bizName" class="block text-sm font-semibold mb-1.5">Business name</label>
+                <input id="bizName" name="business_name" type="text" maxlength="255" required
+                       autocomplete="organization" value="{{ business.official_name }}"
+                       class="input w-full rounded-2xl px-4 py-3 text-sm">
+            </div>
+            <div>
+                <label for="bizState" class="block text-sm font-semibold mb-1.5">State</label>
+                <select id="bizState" name="state" class="input w-full rounded-2xl px-4 py-3 text-sm">
+                    <option value="">Not set</option>
+                </select>
+            </div>
+            <p class="caption-text leading-relaxed">
+                Renaming your business doesn't change your @handle or your profile
+                link — those belong to your account.
+            </p>
+            <p id="bizError" class="text-sm text-danger hidden" role="alert"></p>
+            <div class="flex gap-3">
+                <button type="button" data-close-sheet class="glass flex-1 font-semibold rounded-full py-3 text-sm hover-card">Cancel</button>
+                <button type="submit" id="bizSaveBtn" class="btn-glow flex-1 bg-primary text-background font-bold rounded-full py-3 text-sm">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ---------- Share (client-side only) ---------- -->
+<div id="shareSheet" class="overlay" role="dialog" aria-modal="true" aria-labelledby="shareSheetTitle">
+    <div class="sheet glass w-full sm:max-w-sm rounded-t-[20px] sm:rounded-[20px] overflow-hidden shadow-card">
+        <div class="flex items-center justify-between px-5 pt-5 pb-3">
+            <h3 id="shareSheetTitle" class="font-display text-lg font-bold">Share your shop</h3>
+            <button type="button" data-close-sheet aria-label="Close"
+                    class="w-9 h-9 rounded-full glass flex items-center justify-center">
+                <span class="material-symbols-outlined text-[20px]">close</span>
+            </button>
+        </div>
+        <div class="px-5 pb-[calc(20px+var(--safe-b))] sm:pb-5 space-y-3">
+            <p class="caption-text leading-relaxed">Your public profile is where buyers find everything you sell.</p>
+            <div class="rounded-2xl border border-border p-3 flex items-center gap-2">
+                <span class="material-symbols-outlined text-[18px] text-muted shrink-0" aria-hidden="true">link</span>
+                <span class="text-sm truncate min-w-0" id="shareUrlText">{{ share_url }}</span>
+            </div>
+            <button type="button" id="copyLinkBtn" class="btn-glow w-full bg-primary text-background font-bold rounded-full py-3 text-sm">Copy link</button>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+
+{% block extra_style %}
+
+/* Sheets. Same contract as shop.html / profile.html: bottom sheet on phones,
+   centred card from sm+. Re-declared per page rather than shared, matching the
+   existing templates. */
+.overlay{ position:fixed; inset:0; z-index:80; background:rgba(3,8,16,.72); display:flex; align-items:flex-end; justify-content:center; opacity:0; pointer-events:none; transition:opacity .25s ease; }
+.overlay.open{ opacity:1; pointer-events:auto; }
+.overlay .sheet{ transform:translateY(26px); transition:transform .3s cubic-bezier(.2,.8,.2,1); }
+.overlay.open .sheet{ transform:translateY(0); }
+@media (min-width:640px){
+    .overlay{ align-items:center; }
+    .overlay .sheet{ transform:translateY(14px) scale(.985); }
+    .overlay.open .sheet{ transform:translateY(0) scale(1); }
+}
+
+/* Section switcher. The colours are the literal palette values from the Tailwind
+   config in base.html — `primary` and `accent` are CONFIG COLOURS, not CSS
+   variables, so var(--c-primary) would resolve to nothing here. */
+.hub-tab{ color:var(--c-muted); background:var(--c-glass); border:1px solid var(--c-border); transition:background .18s ease, color .18s ease, border-color .18s ease; }
+.hub-tab:hover{ color:var(--c-text); }
+/* Ink on the selected tab is the LITERAL dark, not var(--c-bg): in the light
+   theme --c-bg is a near-white, and near-white on our pale blue is 1.6:1. */
+.hub-tab-on{ background:#7CC6FF; border-color:#7CC6FF; color:#07111F; }
+
+/* Panels are plain blocks, so preflight's [hidden] already hides them — declared
+   anyway at specificity 0,1,1 so that adding a display utility to a panel later
+   can't silently reveal a hidden one. */
+.hub-panel[hidden]{ display:none; }
+
+/* Quick-action tile. One rule instead of the same eight utilities four times. */
+.quick-action{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.375rem; padding:.875rem .5rem; border-radius:1rem; background:var(--c-card); border:1px solid var(--c-border); transition:transform .15s ease, border-color .15s ease; }
+.quick-action:hover{ transform:translateY(-2px); border-color:var(--c-ink-primary); }
+
+/* "Soon" chip — a muted label, deliberately not a bright badge: it marks
+   something missing, not something new. */
+.soon-chip{ display:inline-flex; align-items:center; gap:.1875rem; padding:.0625rem .375rem; border-radius:9999px; background:var(--c-glass); border:1px solid var(--c-border); color:var(--c-muted); font-size:10px; font-weight:700; letter-spacing:.02em; white-space:nowrap; }
+
+{% endblock %}
+
+
+{% block extra_script %}
+{# base.html renders this block bare (no wrapping <script>), so the tag belongs
+   here — same as home.html, discover.html, shop.html and profile.html. #}
+<script>
+
+/* ===================== BUSINESS HUB =====================
+   Real endpoints on this page:
+     PATCH /api/business/profile        (pickup address, name, state)
+     POST  /api/auth/business/upgrade   (Start selling — non-sellers only)
+   Helpers (patchJSON / postJSON / errorMessage / setLoading / NG_STATES) come
+   from static/js/cartflow-forms.js, loaded by base.html.
+
+   Nothing here invents a number. The only text this script writes into the page
+   is a value the server just confirmed. */
+
+/* ---- sheets ----
+   One delegated listener for every [data-open-sheet] / [data-close-sheet], plus
+   scrim and Escape. Same pattern as the other pages. */
+function openSheet(id){
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.add('open');
+    document.body.style.overflow = 'hidden';
+}
+function closeSheets(){
+    document.querySelectorAll('.overlay.open').forEach(o => o.classList.remove('open'));
+    document.body.style.overflow = '';
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheets(); });
+document.querySelectorAll('.overlay').forEach(o => {
+    o.addEventListener('click', (e) => { if (e.target === o) closeSheets(); });
+});
+
+{% if business %}
+/* ---- section switcher ----
+   Panels are rendered up front and toggled with the `hidden` attribute: there is
+   no per-section fetch yet, so showing one is an attribute swap, not a load. When
+   the doc 16 §31 endpoints land, this is where a fetch hooks in. */
+const HUB_TABS = Array.from(document.querySelectorAll('[data-hub-tab]'));
+function showSection(key){
+    if (!HUB_TABS.some(b => b.dataset.hubTab === key)) return;
+    HUB_TABS.forEach(btn => {
+        const on = btn.dataset.hubTab === key;
+        btn.classList.toggle('hub-tab-on', on);
+        btn.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    document.querySelectorAll('.hub-panel').forEach(p => {
+        p.hidden = p.id !== 'hubPanel-' + key;
+    });
+    /* Keep the section in the URL so a reload lands where the seller was, and so
+       "your pickup address" can be a link from elsewhere. replaceState, not
+       pushState: switching sections isn't navigation, and eight tabs of history
+       would trap the back button. */
+    try { history.replaceState(null, '', '#' + key); } catch (err){ /* non-http origin */ }
+}
+HUB_TABS.forEach(btn => btn.addEventListener('click', () => showSection(btn.dataset.hubTab)));
+
+/* Deep link: /dashboard#operations. An unknown fragment is ignored by
+   showSection's guard rather than blanking every panel. */
+if (window.location.hash.length > 1) showSection(window.location.hash.slice(1));
+
+/* ---- pickup address (PATCH /api/business/profile) ---- */
+const elPickupForm  = document.getElementById('pickupForm');
+const elPickupInput = document.getElementById('pickupInput');
+const elPickupError = document.getElementById('pickupError');
+const elPickupCount = document.getElementById('pickupCount');
+
+function paintPickupCount(){ elPickupCount.textContent = elPickupInput.value.length; }
+elPickupInput.addEventListener('input', paintPickupCount);
+paintPickupCount();
+
+elPickupForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    elPickupError.classList.add('hidden');
+    const btn = document.getElementById('pickupSaveBtn');
+    const value = elPickupInput.value.trim();
+    setLoading(btn, true);
+    try {
+        /* An empty box sends null, which CLEARS the column: the schema
+           normalizes it and the service applies the key because it was present.
+           Sending "" instead would store an empty string that renders as a blank
+           address — worse than none, because the UI would call it set. */
+        const res = await patchJSON('/api/business/profile', { pickup_address: value || null });
+        const saved = res.business.pickup_address;
+
+        /* textContent, never innerHTML — this string came from a text box. */
+        const elValue = document.getElementById('pickupValue');
+        elValue.textContent = saved || "No pickup address set. Buyers can't collect from you until you add one.";
+        elValue.classList.toggle('caption-text', !saved);
+        elValue.classList.toggle('text-sm', !!saved);
+        elValue.classList.toggle('leading-relaxed', !!saved);
+        document.getElementById('setBizPickup').textContent = saved || '—';
+
+        /* The desktop aside only exists from xl+, so both of these are optional. */
+        const elAside = document.getElementById('asidePickup');
+        if (elAside) elAside.textContent = saved ? 'Yes' : 'No';
+        const elCheck = document.getElementById('asideCheckPickup');
+        if (elCheck){
+            const icon = elCheck.querySelector('.material-symbols-outlined');
+            icon.textContent = saved ? 'check_circle' : 'radio_button_unchecked';
+            icon.classList.toggle('text-success', !!saved);
+            icon.classList.toggle('text-muted', !saved);
+        }
+        closeSheets();
+        showToast(saved ? 'Pickup address saved.' : 'Pickup address removed.');
+    } catch (err){
+        if (err.status === 401){ window.location.href = '/login'; return; }
+        elPickupError.textContent = errorMessage(err, "Couldn't save that.");
+        elPickupError.classList.remove('hidden');
+    } finally {
+        setLoading(btn, false);
+    }
+});
+
+/* ---- business details (PATCH /api/business/profile) ---- */
+const elBizForm  = document.getElementById('bizForm');
+const elBizState = document.getElementById('bizState');
+const elBizError = document.getElementById('bizError');
+const BIZ_STATE  = {{ (business.state or '') | tojson }};
+
+/* NG_STATES is shared with signup, the directory and the sell sheet. The current
+   value is SELECTED from that list rather than appended to it, so a stale state
+   can't quietly extend the canonical set. */
+NG_STATES.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s; opt.textContent = s;
+    if (s === BIZ_STATE) opt.selected = true;
+    elBizState.appendChild(opt);
+});
+
+elBizForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    elBizError.classList.add('hidden');
+    const name = document.getElementById('bizName').value.trim();
+    if (name.length < 2){
+        elBizError.textContent = 'Enter your business name.';
+        elBizError.classList.remove('hidden');
+        return;
+    }
+    const btn = document.getElementById('bizSaveBtn');
+    setLoading(btn, true);
+    try {
+        const res = await patchJSON('/api/business/profile', {
+            business_name: name,
+            state: elBizState.value || null,
+        });
+        const biz = res.business;
+        /* The header prefers short_name — the same expression the template uses,
+           so a rename can't make the two disagree. */
+        document.getElementById('hubBizName').textContent = biz.short_name || biz.official_name;
+        document.getElementById('hubBizState').textContent = biz.state || 'State not set';
+        document.getElementById('setBizName').textContent = biz.official_name;
+        document.getElementById('setBizState').textContent = biz.state || '—';
+        closeSheets();
+        showToast(res.message);
+    } catch (err){
+        if (err.status === 401){ window.location.href = '/login'; return; }
+        elBizError.textContent = errorMessage(err, "Couldn't save that.");
+        elBizError.classList.remove('hidden');
+    } finally {
+        setLoading(btn, false);
+    }
+});
+
+/* ---- share (no backend) ----
+   The native share sheet where the browser has it, the clipboard otherwise, and
+   the in-page sheet as the fallback that always works. */
+const SHARE_URL = {{ share_url | tojson }};
+const BIZ_LABEL = {{ biz_name | tojson }};
+
+document.getElementById('hubShareBtn').addEventListener('click', async () => {
+    if (navigator.share){
+        try {
+            await navigator.share({ title: BIZ_LABEL, url: SHARE_URL });
+            return;
+        } catch (err){ /* dismissed — fall through to the sheet */ }
+    }
+    openSheet('shareSheet');
+});
+
+document.getElementById('copyLinkBtn').addEventListener('click', async () => {
+    try {
+        await navigator.clipboard.writeText(SHARE_URL);
+        showToast('Link copied.');
+    } catch (err){
+        /* No clipboard permission (or an insecure origin) — the link is already
+           on screen in the sheet, so say that instead of failing silently. */
+        showToast('Copy the link from the box above.');
+    }
+});
+{% endif %}
+
+{% if current_user and not business %}
+/* ---- start selling (POST /api/auth/business/upgrade) ----
+   Creates the business this user owns and flips is_seller. account_type does NOT
+   change. On success the page reloads: owning a business switches which of the
+   three server-rendered states this route returns. */
+const elSellForm  = document.getElementById('sellForm');
+const elSellState = document.getElementById('sellState');
+const elSellError = document.getElementById('sellError');
+
+NG_STATES.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s; opt.textContent = s;
+    elSellState.appendChild(opt);
+});
+
+elSellForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    elSellError.classList.add('hidden');
+    const name = document.getElementById('sellName').value.trim();
+    if (name.length < 2){
+        elSellError.textContent = 'Enter your business name.';
+        elSellError.classList.remove('hidden');
+        return;
+    }
+    const btn = document.getElementById('sellSaveBtn');
+    setLoading(btn, true);
+    try {
+        const res = await postJSON('/api/auth/business/upgrade', {
+            business_name: name,
+            state: elSellState.value || null,
+        });
+        showToast(res.message);
+        window.location.reload();
+    } catch (err){
+        if (err.status === 401){ window.location.href = '/login'; return; }
+        elSellError.textContent = errorMessage(err, "Couldn't set that up.");
+        elSellError.classList.remove('hidden');
+    } finally {
+        setLoading(btn, false);
+    }
+});
+{% endif %}
+
+/* The sheet triggers, delegated once. Added last so every handler above is bound
+   before the first tap can open anything. */
+document.addEventListener('click', (e) => {
+    const t = e.target;
+    if (!(t instanceof Element)) return;
+    const opener = t.closest('[data-open-sheet]');
+    if (opener){ openSheet(opener.getAttribute('data-open-sheet')); return; }
+    if (t.closest('[data-close-sheet]')){ closeSheets(); }
+});
+
+window.cfParseEmoji && window.cfParseEmoji(document.body);
+</script>
+{% endblock %}

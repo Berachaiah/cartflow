@@ -1,0 +1,1280 @@
+{% extends "base.html" %}
+{% from "partials/avatar.html" import avatar %}
+{% from "partials/ui.html" import money, section_head %}
+
+{# ==========================================================================
+   SHOP — CartFlow's marketplace (docs/product/12-shop-and-products.md, with
+   the cart + checkout behaviour from doc 13).
+
+   Four things to know before editing:
+
+   1. THE CATALOGUE IS CURATED PLACEHOLDER DATA, AND IT LIVES IN PYTHON. There is
+      no Product model (grep app/models — products / product_images / discounts /
+      product_reviews from doc 12 §25 do not exist yet), so `products` comes from
+      app/services/catalog.py, shaped like the `GET /api/products` response doc 12
+      §26 describes. It used to be a `{% set %}` in this file; /product/{slug}
+      moved it, because resolving a slug from a URL and 404ing an unknown one is a
+      decision for Python.
+
+   2. THE PRODUCT DETAILS PAGE IS NOT HERE. A product's own page is
+      /product/{slug} (templates/product.html). This page used to open a bottom
+      sheet instead, and that sheet is why the page exists: a name, seller,
+      rating, price pair, description, delivery coverage, pickup point, quantity
+      control and related rail stacked into one phone-width column left the
+      description below the fold with a scrollbar. Cards and rail tiles are plain
+      links now, so middle-click, "open in new tab" and shared links all work
+      without JS.
+
+   3. THE GRID IS RENDERED SERVER-SIDE AND FILTERED IN PLACE. Every product is
+      emitted once, carrying its facts on `data-*` attributes; search, category,
+      filters and sort then hide/show and re-order those same nodes. That means
+      the card markup has exactly one definition (no JS template duplicating
+      it), the page is complete before JS runs, and swapping in server-driven
+      pagination later replaces `applyShop()` rather than the cards. The cart
+      lines read their prices off those same cards, so a cart total can never
+      disagree with the grid.
+
+   4. THE CART IS REAL BUT LOCAL, AND SHARED WITH THE PRODUCT PAGE. Doc 13 wants
+      quantity control, per-business grouping and a live total, and all of that is
+      honest to build client-side. The storage shape lives in
+      static/js/cartflow-cart.js because /product/{slug} writes to the same cart —
+      two pages inventing their own line shape is how a cart loses items. What it
+      will NOT do is pretend to check out: `POST /api/checkout` does not exist,
+      there is no payments integration and no `orders` table, so the checkout
+      button says so instead of faking a receipt. Same rule for Save (doc 12 §19)
+      — device-local, and the copy says so rather than implying the account synced.
+
+   NO INLINE HANDLERS ON GENERATED MARKUP. Every JS-built row (cart lines) uses
+   `data-*` + one delegated listener. An entity-escaped apostrophe (`&#39;`) is
+   decoded by the HTML parser BEFORE the JS compiles, so a name like "Chef's
+   Special" written into an inline `onclick` would end the string literal early.
+   The server-rendered cards may use `data-*` too — one convention, no exceptions
+   to remember.
+
+   Section order follows doc 12 §3: search → categories → filters → Recommended
+   → Trending → Discounts → Newest → the full grid. On xl+ that becomes the
+   three-column desktop layout §3 asks for (categories/filters left, grid
+   centre, trending/discounts right).
+========================================================================== #}
+
+{# ----- rails (doc 12 §3) -------------------------------------------------
+   Compact promos, NOT second copies of the product card: a rail tile shows a
+   photo, a name and a price and links to /product/{slug} for everything else, so
+   it can never drift out of sync with the card in the grid. Capped at 6/4 items —
+   a rail is a teaser, and the grid below is the complete catalogue. #}
+{% macro rail(title, subtitle, items) -%}
+<section class="glass panel p-4 sm:p-5">
+    <div class="flex items-center justify-between mb-3 gap-3">
+        <div class="min-w-0">
+            {# Inline rather than section_head(): this heading truncates inside a
+               flex row, so it needs its own classes. Scale kept in step with the
+               macro by hand. #}
+            <h2 class="font-display text-[15px] font-bold leading-tight truncate">{{ title }}</h2>
+            <p class="caption-text text-[12.5px] mt-0.5 leading-snug truncate">{{ subtitle }}</p>
+        </div>
+    </div>
+    <div class="flex gap-3 overflow-x-auto hide-scrollbar">
+        {% for p in items[:6] %}
+        <a href="/product/{{ p.slug }}" class="shrink-0 w-32 group">
+            <div class="relative">
+                <img src="{{ p.image }}" alt="{{ p.alt }}" loading="lazy" decoding="async"
+                     class="w-32 h-32 rounded-2xl object-cover">
+                {% if p.was %}
+                <span class="absolute top-1.5 left-1.5 bg-accent text-background text-[10px] font-bold px-1.5 py-0.5 rounded-full">-{{ ((p.was - p.price) / p.was * 100) | round | int }}%</span>
+                {% endif %}
+            </div>
+            <h3 class="text-xs font-semibold mt-2 line-clamp-2 leading-snug group-hover:text-primary transition-colors">{{ p.name }}</h3>
+            <p class="text-xs text-muted truncate">{{ p.business }}</p>
+            <p class="text-xs font-bold mt-0.5">{{ money(p.price) }}</p>
+        </a>
+        {% endfor %}
+    </div>
+</section>
+{%- endmacro %}
+
+{% macro side_rail(title, items) -%}
+<section class="glass panel p-4">
+    {{ section_head(title) }}
+    <div class="space-y-3">
+        {% for p in items[:4] %}
+        <a href="/product/{{ p.slug }}" class="w-full flex items-center gap-3 group">
+            <img src="{{ p.image }}" alt="{{ p.alt }}" loading="lazy" decoding="async"
+                 class="w-12 h-12 rounded-xl object-cover shrink-0">
+            <div class="min-w-0 flex-1">
+                {# Product names wrap to two lines instead of clipping. "Campus
+                   Essential Hoodie — Black" truncated to "Campus Essential…"
+                   loses the variant, which is the part you were checking. The
+                   business line below keeps truncate: it is context, not the
+                   thing being named. #}
+                <h3 class="text-sm font-semibold leading-tight line-clamp-2 group-hover:text-primary transition-colors">{{ p.name }}</h3>
+                <p class="text-xs text-muted truncate mt-0.5">{{ p.business }}</p>
+            </div>
+            <span class="text-xs font-bold shrink-0">{{ money(p.price) }}</span>
+        </a>
+        {% endfor %}
+    </div>
+</section>
+{%- endmacro %}
+
+
+{# `products`, `categories`, `sort_options` and `coverage_areas` all arrive from
+   the route (app/services/catalog.py). They used to be `{% set %}` blocks right
+   here, which was fine while this page owned the only view of a product — the
+   details sheet read its facts off the tapped card, so template-local data was
+   enough. /product/{slug} broke that: the server has to resolve a slug from a
+   URL and 404 an unknown one, which is a decision for Python, not a template.
+   Same data, same keys, one source. #}
+
+{# ==========================================================================
+   TOP BAR — overridden for one reason: base.html's default bar links the cart
+   icon to /marketplace, which on this page is a link to the page you are
+   already on. Here it opens the cart sheet and carries a live item count.
+   Everything else matches the default bar exactly, INCLUDING the
+   `themeToggleMobile` id — base.html's script wires the mobile theme toggle by
+   that id, so renaming it would silently drop theme switching on phones.
+========================================================================== #}
+{% block topbar %}
+<header class="sticky top-0 z-40 h-14 sm:h-16 border-b border-border blur-bg">
+    <div class="h-full px-4 sm:px-8 flex items-center justify-between gap-3">
+        {# Centred in the space the icons leave — see base.html's default top bar
+           for why viewport-centring is not available on a phone. #}
+        <div class="lg:hidden flex-1 min-w-0 flex justify-center">
+            <a href="/" class="font-display text-2xl font-black tracking-tight" aria-label="CartFlow — home">CartFlow</a>
+        </div>
+        <h1 class="hidden lg:block font-display text-xl sm:text-2xl font-bold truncate">Shop</h1>
+        <div class="flex items-center gap-2 sm:gap-3">
+            <button type="button" aria-label="Notifications" class="glass w-10 h-10 rounded-xl flex items-center justify-center hover-card">
+                <span class="material-symbols-outlined text-[20px]">notifications</span>
+            </button>
+            <button id="cartBtn" type="button" data-open-sheet="cartSheet" aria-label="Cart"
+                    class="relative glass w-10 h-10 rounded-xl flex items-center justify-center hover-card">
+                <span class="material-symbols-outlined text-[20px]">shopping_cart</span>
+                {# Hidden until there is something to count — a "0" badge is noise. #}
+                <span id="cartBadge" class="hidden absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-background text-[10px] font-bold flex items-center justify-center">0</span>
+            </button>
+            {# The theme toggle used to sit here. On a phone this bar already carries
+               the wordmark, notifications, the cart and your avatar; a light/dark
+               switch is the one control nobody needs twice, so it lives in
+               Settings → Appearance. #}
+            {% if current_user %}
+            <a href="/@{{ current_user.username }}" aria-label="Your profile" class="shrink-0 rounded-xl">
+                {{ avatar(current_user.display_name, current_user.username, "w-10 h-10", "rounded-xl", "", "text-sm", src=avatar_src(current_user, "sm")) }}
+            </a>
+            {% else %}
+            <a href="/login" class="glass px-3 h-10 rounded-xl flex items-center text-sm font-semibold hover-card">Log in</a>
+            {% endif %}
+        </div>
+    </div>
+</header>
+{% endblock %}
+
+{% block content %}
+<div class="page-wide xl:grid xl:grid-cols-[230px_minmax(0,1fr)_290px] xl:gap-6">
+
+    <!-- ===================== LEFT RAIL (doc 12 §3, desktop) =====================
+         Categories and filters, as the desktop layout specifies. The filter
+         PANEL itself is a single DOM node that JS relocates between this slot
+         and the mobile sheet (see `placeFilters()`), so filter state has exactly
+         one home — two copies of the same inputs would need syncing and would
+         eventually disagree. -->
+    <aside class="hidden xl:block">
+        <div class="sticky top-20 space-y-4">
+            <nav class="glass panel p-4" aria-label="Product categories">
+                <h2 class="font-display text-[15px] font-bold leading-tight mb-3 px-1">Categories</h2>
+                <div class="space-y-1">
+                    {% for c in categories %}
+                    <button type="button" data-category="{{ c.name }}"
+                            class="cat-side w-full flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-left hover:bg-card transition-colors {{ 'bg-card font-semibold text-primary' if loop.first else '' }}">
+                        <span class="material-symbols-outlined text-[20px] shrink-0">{{ c.icon }}</span>
+                        <span class="truncate">{{ c.name }}</span>
+                    </button>
+                    {% endfor %}
+                </div>
+            </nav>
+            <div id="filterSlotDesktop"></div>
+        </div>
+    </aside>
+
+    <!-- ===================== CENTRE COLUMN ===================== -->
+    <div class="min-w-0">
+
+        <!-- search (doc 12 §9) — sticky under the top bar, full-bleed on mobile -->
+        <div class="sticky top-14 sm:top-16 z-30 -mx-3 px-3 py-2.5 border-b border-border blur-bg sm:mx-0 sm:px-0 sm:border-0">
+            <div class="relative">
+                <span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-muted text-[20px] pointer-events-none" aria-hidden="true">search</span>
+                <input id="shopSearch" type="text" placeholder="Search products, shops, categories…"
+                       aria-label="Search products" aria-controls="productGrid"
+                       autocomplete="off" enterkeyhint="search" inputmode="search"
+                       class="w-full bg-card border border-border rounded-full pl-12 pr-12 py-3 text-sm sm:text-base outline-none focus:border-primary transition-colors">
+                <button id="shopSearchClear" type="button" aria-label="Clear search"
+                        class="hidden absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full flex items-center justify-center text-muted hover:text-[var(--c-text)]">
+                    <span class="material-symbols-outlined text-[20px]">close</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- category chips (doc 12 §7) — the mobile/tablet form of the left rail -->
+        <div class="xl:hidden -mx-3 px-3 pt-3">
+            <div class="flex gap-2 overflow-x-auto hide-scrollbar pb-1" role="tablist" aria-label="Product categories">
+                {% for c in categories %}
+                <button type="button" role="tab" data-category="{{ c.name }}"
+                        aria-selected="{{ 'true' if loop.first else 'false' }}"
+                        class="cat-chip shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-full text-sm whitespace-nowrap border transition-colors {{ 'bg-primary text-background border-primary font-semibold' if loop.first else 'glass border-border' }}">
+                    <span class="material-symbols-outlined text-[18px]">{{ c.icon }}</span>{{ c.name }}
+                </button>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- result count + sort + filters (doc 12 §10-11) -->
+        <div class="flex items-center justify-between gap-2 pt-3">
+            <p class="text-sm text-muted min-w-0 truncate" aria-live="polite">
+                <span id="resultCount">{{ products | length }}</span> products
+            </p>
+            <div class="flex items-center gap-2 shrink-0">
+                <button type="button" data-open-sheet="sortSheet"
+                        class="glass border border-border rounded-full px-3.5 py-2 text-sm flex items-center gap-1.5 hover-card">
+                    <span class="material-symbols-outlined text-[18px]">swap_vert</span>
+                    <span id="sortLabel" class="hidden sm:inline">Recommended</span>
+                    <span class="sm:hidden">Sort</span>
+                </button>
+                <button type="button" data-open-sheet="filterSheet"
+                        class="xl:hidden glass border border-border rounded-full px-3.5 py-2 text-sm flex items-center gap-1.5 hover-card">
+                    <span class="material-symbols-outlined text-[18px]">tune</span>
+                    Filters
+                    <span id="filterCount" class="hidden min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-background text-[10px] font-bold flex items-center justify-center">0</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- active filters (doc 12 §10 "sticky until cleared" — so they stay
+             visible and removable rather than hiding inside the sheet) -->
+        <div id="activeFilters" class="hidden flex-wrap items-center gap-2 pt-3"></div>
+
+        <!-- rails (doc 12 §3). On xl these move to the right column, so the
+             mobile copies are hidden there rather than duplicated. Rail items
+             are compact — they carry only `data-slug` and read the full product
+             from its card in the grid, so there is still one card definition. -->
+        <div class="xl:hidden space-y-5 pt-4">
+            {{ rail("🔥 Trending now", "Most purchased this week", products | sort(attribute="sold", reverse=true) | list) }}
+            {{ rail("🏷️ Discounts", "Ends when the seller says so", products | selectattr("was") | list) }}
+        </div>
+
+        <!-- ===================== THE GRID ===================== -->
+        <div class="pt-5">
+            {{ section_head("Recommended for you", id="gridHeading") }}
+            <div id="productGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {% for p in products %}
+                {% set discount = (((p.was - p.price) / p.was * 100) | round | int) if p.was else 0 %}
+                <article class="shop-card glass rounded-3xl overflow-hidden hover-card flex flex-col"
+                         data-slug="{{ p.slug }}"
+                         data-name="{{ p.name }}"
+                         data-business="{{ p.business }}"
+                         data-handle="{{ p.handle }}"
+                         data-category="{{ p.category }}"
+                         data-price="{{ p.price }}"
+                         data-was="{{ p.was or 0 }}"
+                         data-discount="{{ discount }}"
+                         data-rating="{{ p.rating }}"
+                         data-reviews="{{ p.reviews }}"
+                         data-stock="{{ p.stock }}"
+                         data-sold="{{ p.sold }}"
+                         data-days="{{ p.days }}"
+                         data-pop="{{ p.pop }}"
+                         data-image="{{ p.image }}"
+                         data-alt="{{ p.alt }}"
+                         data-desc="{{ p.desc }}"
+                         data-delivery="{{ p.delivery | join(', ') }}"
+                         data-pickup="{{ p.pickup }}"
+                         {# one precomputed lowercase haystack keeps the search
+                            comparison to a single indexOf per card (doc 12 §9:
+                            name, tags, business, category, partial matching) #}
+                         data-search="{{ (p.name ~ ' ' ~ p.business ~ ' ' ~ p.category ~ ' ' ~ (p.tags | join(' '))) | lower }}">
+
+                    <div class="relative">
+                        <a href="/product/{{ p.slug }}" class="block w-full" aria-label="View {{ p.name }}">
+                            <img src="{{ p.image }}" alt="{{ p.alt }}" loading="lazy" decoding="async"
+                                 class="w-full aspect-square object-cover">
+                        </a>
+                        {% if discount %}
+                        <span class="absolute top-2 left-2 bg-accent text-background text-[11px] font-bold px-2 py-0.5 rounded-full">-{{ discount }}%</span>
+                        {% endif %}
+                        {% if p.stock == 0 %}
+                        <span class="absolute bottom-2 left-2 on-media bg-black/60 text-[11px] font-semibold px-2 py-0.5 rounded-full">Out of stock</span>
+                        {% elif p.stock <= 5 %}
+                        <span class="absolute bottom-2 left-2 on-media bg-black/60 text-[11px] font-semibold px-2 py-0.5 rounded-full">Low stock</span>
+                        {% endif %}
+                        <button type="button" data-save="{{ p.slug }}" aria-label="Save {{ p.name }}"
+                                class="save-btn absolute top-2 right-2 w-9 h-9 rounded-full bg-black/45 backdrop-blur flex items-center justify-center on-media">
+                            <span class="material-symbols-outlined text-[18px]">bookmark</span>
+                        </button>
+                    </div>
+
+                    <div class="p-3 flex flex-col gap-1 flex-1">
+                        <a href="/product/{{ p.slug }}" class="block hover:text-primary transition-colors">
+                            <h3 class="font-semibold text-sm leading-snug line-clamp-2">{{ p.name }}</h3>
+                        </a>
+                        <p class="text-xs text-muted truncate">{{ p.business }}</p>
+                        <p class="text-xs text-muted flex items-center gap-1">
+                            {% if p.reviews %}
+                            <span class="material-symbols-outlined text-accent text-[14px]">star</span>
+                            <span class="font-semibold text-[var(--c-text)]">{{ "%.1f"|format(p.rating) }}</span>
+                            <span>({{ p.reviews }})</span>
+                            {% else %}
+                            <span>No reviews yet</span>
+                            {% endif %}
+                        </p>
+                        <div class="flex items-baseline gap-1.5 mt-auto pt-1">
+                            <span class="font-display font-bold">{{ money(p.price) }}</span>
+                            {% if p.was %}<span class="text-xs text-muted line-through">{{ money(p.was) }}</span>{% endif %}
+                        </div>
+                        {% if p.stock == 0 %}
+                        {# Doc 12 §13: an out-of-stock product cannot be added to
+                           the cart. Disabled here AND re-checked in addToCart(). #}
+                        <button type="button" disabled
+                                class="mt-2 w-full rounded-full py-2 text-xs font-bold bg-card text-muted cursor-not-allowed">
+                            Out of stock
+                        </button>
+                        {% else %}
+                        <button type="button" data-add="{{ p.slug }}"
+                                class="mt-2 w-full rounded-full py-2 text-xs font-bold bg-primary text-background btn-glow">
+                            Add to cart
+                        </button>
+                        {% endif %}
+                    </div>
+                </article>
+                {% endfor %}
+            </div>
+
+            <!-- empty state: a filter combination with no matches is a normal
+                 outcome, so it gets a real answer and a way back -->
+            <div id="gridEmpty" class="hidden glass panel border border-dashed border-border px-4 py-8 text-center">
+                <span class="w-11 h-11 rounded-2xl bg-card border border-border flex items-center justify-center mx-auto" aria-hidden="true">
+                    <span class="material-symbols-outlined text-[22px] text-muted">search_off</span>
+                </span>
+                <h3 class="font-display text-[15px] font-bold leading-tight mt-3">Nothing matches that yet</h3>
+                <p class="caption-text text-[13px] mt-1.5 max-w-[19rem] mx-auto leading-snug">
+                    CartFlow is opening with a small catalogue. Try a wider price range, or clear
+                    the filters to see everything on offer.
+                </p>
+                <button type="button" id="emptyClear" data-clear-filters
+                        class="inline-flex items-center gap-1 mt-3.5 bg-primary text-background font-bold rounded-full px-4 py-2 text-[13px] btn-glow">
+                    Clear filters
+                </button>
+            </div>
+
+            <!-- Doc 12 §27 pagination is server-driven, so there is no infinite
+                 scroll to fake here. Say where the catalogue ends instead. -->
+            <p id="gridFootnote" class="text-center text-xs text-muted mt-5">
+                You've reached the end of the catalogue. More products arrive as businesses join —
+                <a href="/dashboard" class="text-primary hover:underline">open a shop</a> if one of them is yours.
+            </p>
+        </div>
+    </div>
+
+    <!-- ===================== RIGHT RAIL (doc 12 §3, desktop) ===================== -->
+    <aside class="hidden xl:block">
+        <div class="sticky top-20 space-y-4">
+            {{ side_rail("🔥 Trending", products | sort(attribute="sold", reverse=true) | list) }}
+            {{ side_rail("🏷️ Active discounts", products | selectattr("was") | list) }}
+            <div class="glass panel p-4">
+                <h2 class="font-display text-[15px] font-bold leading-tight mb-2">🚚 Delivery coverage</h2>
+                <p class="text-xs text-muted mb-3">Where campus businesses currently deliver (doc 12 §15).</p>
+                <div class="flex flex-wrap gap-2">
+                    {% for area in coverage_areas %}
+                    <span class="glass border border-border rounded-full px-3 py-1 text-xs">{{ area }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </aside>
+</div>
+{% endblock %}
+
+{% block modals %}
+{# ===================== SHEETS =====================
+   Bottom sheets on phones, centred cards from sm+ (see extra_style). Opened by
+   [data-open-sheet], closed by [data-close-sheet] / the scrim / Escape — all
+   wired once in extra_script, same contract as the profile page. #}
+
+<!-- ---------- FILTERS (doc 12 §10) ----------
+     The panel is deliberately OUTSIDE the sheet in the markup: `placeFilters()`
+     moves this one node between `#filterSlotDesktop` (the left rail, xl+) and
+     `#filterSlotSheet` below. One node means one set of inputs and therefore one
+     filter state — two copies would need syncing and would eventually disagree
+     about what the user asked for. -->
+<div id="filterPanelHost" class="hidden">
+    <div id="filterPanel" class="glass panel p-4 space-y-5">
+        <h2 class="font-display text-[15px] font-bold leading-tight hidden xl:block">Filters</h2>
+
+        <!-- price range -->
+        <div>
+            <h3 class="text-sm font-semibold mb-2">Price range</h3>
+            <div class="flex items-center gap-2">
+                <label class="sr-only" for="fMin">Minimum price</label>
+                <input id="fMin" type="number" min="0" step="500" inputmode="numeric" placeholder="Min"
+                       class="w-full bg-card border border-border rounded-xl px-3 py-2 text-sm outline-none focus:border-primary">
+                <span class="text-muted text-sm">–</span>
+                <label class="sr-only" for="fMax">Maximum price</label>
+                <input id="fMax" type="number" min="0" step="500" inputmode="numeric" placeholder="Max"
+                       class="w-full bg-card border border-border rounded-xl px-3 py-2 text-sm outline-none focus:border-primary">
+            </div>
+        </div>
+
+        <!-- minimum rating -->
+        <div>
+            <h3 class="text-sm font-semibold mb-2">Minimum rating</h3>
+            <div class="flex flex-wrap gap-2" role="group" aria-label="Minimum rating">
+                {% for r in [0, 3, 4, 4.5] %}
+                <button type="button" data-rating-filter="{{ r }}"
+                        aria-pressed="{{ 'true' if loop.first else 'false' }}"
+                        class="rating-opt px-3 py-1.5 rounded-full text-xs border transition-colors {{ 'bg-primary text-background border-primary font-semibold' if loop.first else 'glass border-border' }}">
+                    {{ "Any" if not r else r ~ "★ & up" }}
+                </button>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- delivery area (doc 12 §15) -->
+        <div>
+            <h3 class="text-sm font-semibold mb-2">Delivers to</h3>
+            <label class="sr-only" for="fArea">Delivery area</label>
+            <select id="fArea" class="w-full bg-card border border-border rounded-xl px-3 py-2 text-sm outline-none focus:border-primary">
+                <option value="">Anywhere</option>
+                {% for area in coverage_areas %}
+                <option value="{{ area }}">{{ area }}</option>
+                {% endfor %}
+            </select>
+            {# Doc 12 §10 also lists a University filter. It needs products to
+               point at an organization, which arrives with the `products` table —
+               coverage is the honest version of the same question today. #}
+        </div>
+
+        <!-- switches -->
+        <div class="space-y-2">
+            <label class="flex items-center justify-between gap-3 cursor-pointer">
+                <span class="text-sm">In stock only</span>
+                <input id="fStock" type="checkbox" class="w-5 h-5 rounded accent-[#7CC6FF]">
+            </label>
+            <label class="flex items-center justify-between gap-3 cursor-pointer">
+                <span class="text-sm">Discounted only</span>
+                <input id="fDiscount" type="checkbox" class="w-5 h-5 rounded accent-[#7CC6FF]">
+            </label>
+            <label class="flex items-center justify-between gap-3 cursor-pointer">
+                <span class="text-sm">Pickup available</span>
+                <input id="fPickup" type="checkbox" class="w-5 h-5 rounded accent-[#7CC6FF]">
+            </label>
+        </div>
+
+        <button type="button" data-clear-filters
+                class="hidden xl:block w-full glass border border-border rounded-full py-2.5 text-sm font-semibold hover-card">
+            Clear all filters
+        </button>
+    </div>
+</div>
+
+<div id="filterSheet" class="overlay" role="dialog" aria-modal="true" aria-labelledby="filterSheetTitle">
+    <div class="sheet glass w-full sm:max-w-md rounded-t-[20px] sm:rounded-[20px] overflow-hidden shadow-card max-h-[92vh] flex flex-col">
+        <div class="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
+            <h3 id="filterSheetTitle" class="font-display text-lg font-bold">Filters</h3>
+            <button type="button" data-close-sheet aria-label="Close"
+                    class="w-9 h-9 rounded-full glass flex items-center justify-center">
+                <span class="material-symbols-outlined text-[20px]">close</span>
+            </button>
+        </div>
+        <div id="filterSlotSheet" class="px-4 pb-4 overflow-y-auto"></div>
+        <div class="px-4 pb-[calc(16px+var(--safe-b))] sm:pb-4 pt-1 flex gap-2 shrink-0">
+            <button type="button" id="filterClearBtn" data-clear-filters class="glass flex-1 font-semibold rounded-full py-3 text-sm hover-card">Clear all</button>
+            <button type="button" data-close-sheet class="flex-1 bg-primary text-background font-bold rounded-full py-3 text-sm btn-glow">
+                Show <span id="filterApplyCount">{{ products | length }}</span> products
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- ---------- SORT (doc 12 §11) ---------- -->
+<div id="sortSheet" class="overlay" role="dialog" aria-modal="true" aria-labelledby="sortSheetTitle">
+    <div class="sheet glass w-full sm:max-w-sm rounded-t-[20px] sm:rounded-[20px] overflow-hidden shadow-card">
+        <div class="flex items-center justify-between px-5 pt-5 pb-3">
+            <h3 id="sortSheetTitle" class="font-display text-lg font-bold">Sort by</h3>
+            <button type="button" data-close-sheet aria-label="Close"
+                    class="w-9 h-9 rounded-full glass flex items-center justify-center">
+                <span class="material-symbols-outlined text-[20px]">close</span>
+            </button>
+        </div>
+        <div class="px-3 pb-[calc(16px+var(--safe-b))] sm:pb-4" role="radiogroup" aria-label="Sort products by">
+            {% for s in sort_options %}
+            <button type="button" role="radio" data-sort="{{ s.key }}"
+                    aria-checked="{{ 'true' if loop.first else 'false' }}"
+                    class="sort-row sheet-row">
+                <span class="min-w-0 flex-1"><span class="block text-sm font-semibold">{{ s.label }}</span></span>
+                <span class="material-symbols-outlined text-[20px] text-primary sort-tick {{ '' if loop.first else 'invisible' }}" aria-hidden="true">check</span>
+            </button>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<!-- ---------- CART (doc 13 §3-12, §17) ----------
+     Grouped by business, quantities capped at stock, totals recomputed on every
+     change. It persists in localStorage so a reload behaves like a real cart —
+     what it will not do is fake a checkout (see #checkoutBtn). -->
+<div id="cartSheet" class="overlay" role="dialog" aria-modal="true" aria-labelledby="cartSheetTitle">
+    <div class="sheet glass w-full sm:max-w-lg rounded-t-[20px] sm:rounded-[20px] overflow-hidden shadow-card max-h-[94vh] flex flex-col">
+        <div class="flex items-center justify-between gap-3 px-4 pt-4 pb-2.5 shrink-0">
+            <div class="min-w-0">
+                <h3 id="cartSheetTitle" class="font-display text-[16px] font-bold leading-tight">Your cart</h3>
+                <p id="cartCountLine" class="text-[11.5px] text-muted mt-0.5">Nothing in it yet</p>
+            </div>
+            <button type="button" data-close-sheet aria-label="Close"
+                    class="w-9 h-9 rounded-full glass flex items-center justify-center shrink-0">
+                <span class="material-symbols-outlined text-[20px]">close</span>
+            </button>
+        </div>
+
+        {# `flex-auto`, NOT `flex-1`. The sheet's height is content-driven
+           (max-h, no fixed height), and `flex-1` sets flex-basis:0 — so this
+           pane contributed nothing to the intrinsic height, the two shrink-0
+           siblings claimed all of it, and the items you had just added were
+           squeezed to a sliver. `flex:1 1 auto` sizes the pane to its content,
+           lets the sheet grow to 94vh, and scrolls only past that. #}
+        <div class="px-4 overflow-y-auto flex-auto">
+            <div id="cartEmpty" class="px-4 py-8 text-center">
+                <span class="w-11 h-11 rounded-2xl bg-card border border-border flex items-center justify-center mx-auto" aria-hidden="true">
+                    <span class="material-symbols-outlined text-[22px] text-muted">shopping_cart</span>
+                </span>
+                <h4 class="font-display text-[15px] font-bold leading-tight mt-3">Your cart is empty</h4>
+                <p class="caption-text text-[13px] mt-1.5 max-w-[19rem] mx-auto leading-snug">
+                    Add something from the Shop and it'll wait for you here — even if you close the tab.
+                </p>
+                <button type="button" data-close-sheet
+                        class="inline-flex items-center gap-1 mt-3.5 bg-primary text-background font-bold rounded-full px-4 py-2 text-[13px] btn-glow">
+                    Browse products
+                </button>
+            </div>
+            <div id="cartGroups" class="space-y-2.5 pb-1"></div>
+
+            {# The breakdown scrolls WITH the items; only the total and the
+               button are pinned. Four summary rows plus three lines of escrow
+               copy in a fixed footer took 260px off a phone screen — on the one
+               sheet whose whole job is showing you what you picked. #}
+            <div id="cartSummary" class="hidden pt-3 pb-1">
+                <dl class="space-y-1 text-[12.5px]">
+                    <div class="flex justify-between gap-3"><dt class="text-muted">Products total</dt><dd id="sumProducts" class="font-semibold">₦0</dd></div>
+                    <div class="flex justify-between gap-3"><dt class="text-muted">Discount</dt><dd id="sumDiscount" class="font-semibold text-success">−₦0</dd></div>
+                    <div class="flex justify-between gap-3"><dt class="text-muted">Delivery</dt><dd class="text-[11.5px] text-muted">Set per business at checkout</dd></div>
+                </dl>
+                <!-- escrow notice (doc 13 §17, near-verbatim — it is the trust copy) -->
+                <p class="mt-2.5 rounded-xl border border-primary/40 bg-primary/10 px-3 py-2 text-[11.5px] leading-snug">
+                    <span class="material-symbols-outlined text-[14px] align-[-3px] text-primary">lock</span>
+                    Your payment will be securely held by CartFlow. The seller is paid only after
+                    your order is completed.
+                </p>
+            </div>
+        </div>
+
+        <div id="cartFooter" class="hidden px-4 pt-2.5 pb-[calc(12px+var(--safe-b))] sm:pb-4 border-t border-border shrink-0">
+            <div class="flex items-baseline justify-between gap-3">
+                <span class="text-[12.5px] font-bold">Grand total</span>
+                <span id="sumTotal" class="font-display text-[17px] font-black">₦0</span>
+            </div>
+            <button type="button" id="checkoutBtn"
+                    class="mt-2 w-full bg-primary text-background font-bold rounded-full py-3 text-[14px] btn-glow">
+                Checkout
+            </button>
+            <p class="text-center text-[10.5px] text-muted mt-1.5 leading-snug">
+                The cart is real; CartFlow payments and escrow aren't live yet.
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_style %}
+
+/* Sheets — same contract as the profile page: bottom sheets on phones (thumb
+   reachable), centred cards from sm+. Re-declared per page rather than shared
+   because each page's sheet set differs; the class names are the shared part. */
+.overlay{ position:fixed; inset:0; z-index:80; background:rgba(3,8,16,.72); display:flex; align-items:flex-end; justify-content:center; opacity:0; pointer-events:none; transition:opacity .25s ease; }
+.overlay.open{ opacity:1; pointer-events:auto; }
+.overlay .sheet{ transform:translateY(26px); transition:transform .3s cubic-bezier(.2,.8,.2,1); }
+.overlay.open .sheet{ transform:translateY(0); }
+@media (min-width:640px){
+    .overlay{ align-items:center; }
+    .overlay .sheet{ transform:translateY(14px) scale(.985); }
+    .overlay.open .sheet{ transform:translateY(0) scale(1); }
+}
+
+.sheet-row{ width:100%; display:flex; align-items:center; gap:.75rem; text-align:left; padding:.75rem; border-radius:1rem; transition:background .15s ease; }
+.sheet-row:hover{ background:var(--c-glass); }
+
+/* Product cards. Sorting sets `order` on each card instead of moving nodes: no
+   DOM churn, no lost focus, and sort + filter both stay pure attribute writes. */
+.shop-card{ transition:transform .18s ease, opacity .18s ease; }
+.shop-card[hidden]{ display:none; }
+.shop-card.saved .save-btn .material-symbols-outlined{ font-variation-settings:'FILL' 1; color:var(--c-ink-accent); }
+
+/* Category chips / rows: the active swap is done in JS; this is just the ease. */
+.cat-chip, .cat-side{ transition:background .2s ease, color .2s ease, border-color .2s ease; }
+
+{% endblock %}
+
+{% block extra_script %}
+{# base.html renders this block bare, so the <script> tag belongs here. The cart's
+   storage shape lives in cartflow-cart.js because the product page writes to the
+   same cart — see the header comment in that file. base.html loads it (before this
+   block) so the topbar badge survives navigation; nothing to load again here. #}
+<script>
+
+/* ===================== SHOP =====================
+   No network calls: `GET /api/products`, `GET /api/cart` and `POST /api/checkout`
+   (doc 12 §26, doc 13 §19) do not exist yet, so everything here works off the
+   cards the server already rendered.
+
+   THE CARD IS THE SINGLE SOURCE OF TRUTH. Every fact about a product lives on
+   its `.shop-card` dataset; the details sheet, the rails, the cart lines and the
+   totals all read from there. So nothing can drift — a price shown in the cart
+   is literally the price the grid rendered. The cart therefore stores only
+   `{slug, qty}`, and a slug that has left the catalogue is dropped on load
+   instead of resurrecting a stale price. */
+
+const CARDS = Array.from(document.querySelectorAll('.shop-card'));
+const cardBySlug = new Map(CARDS.map(c => [c.dataset.slug, c]));
+
+const SORT_LABELS = {};
+{{ sort_options | tojson }}.forEach(s => { SORT_LABELS[s.key] = s.label; });
+
+const fmt = (n) => '₦' + Number(n).toLocaleString('en-NG');
+const num = (v) => Number(v) || 0;
+
+/* Facts about one product, always via its card. */
+function factsOf(slug){
+    const c = cardBySlug.get(slug);
+    if (!c) return null;
+    const d = c.dataset;
+    return {
+        slug: d.slug, name: d.name, business: d.business, handle: d.handle,
+        category: d.category, price: num(d.price), was: num(d.was),
+        discount: num(d.discount), rating: num(d.rating), reviews: num(d.reviews),
+        stock: num(d.stock), sold: num(d.sold), days: num(d.days), pop: num(d.pop),
+        image: d.image, alt: d.alt, desc: d.desc, pickup: d.pickup,
+        delivery: d.delivery ? d.delivery.split(', ') : []
+    };
+}
+
+/* ---- sheets ----
+   One delegated listener for every open/close trigger, same contract as the
+   profile page: sheets added later need no extra JS. */
+function openSheet(id){
+    const el = document.getElementById(id);
+    if (!el) return;
+    document.querySelectorAll('.overlay.open').forEach(o => { if (o !== el) o.classList.remove('open'); });
+    el.classList.add('open');
+}
+function closeSheets(){ document.querySelectorAll('.overlay.open').forEach(o => o.classList.remove('open')); }
+
+document.querySelectorAll('.overlay').forEach(o => {
+    o.addEventListener('click', (e) => { if (e.target === o) o.classList.remove('open'); });
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheets(); });
+
+/* ---- the filter panel lives in exactly one place at a time ----
+   xl+ → the left rail; below that → inside the filter sheet. Moving the node
+   (rather than rendering it twice) is what guarantees the sheet and the rail can
+   never hold different answers to the same question. */
+const mqDesktop = window.matchMedia('(min-width:1280px)');
+const elPanel = document.getElementById('filterPanel');
+const slotDesktop = document.getElementById('filterSlotDesktop');
+const slotSheet = document.getElementById('filterSlotSheet');
+
+function placeFilters(){
+    const target = mqDesktop.matches ? slotDesktop : slotSheet;
+    if (elPanel.parentElement !== target) target.appendChild(elPanel);
+    // A sheet left open while its content moves out is an empty sheet.
+    if (mqDesktop.matches) document.getElementById('filterSheet').classList.remove('open');
+}
+mqDesktop.addEventListener('change', placeFilters);
+placeFilters();
+
+/* ---- filter + sort state ----
+   Doc 12 §10: filters stay applied until cleared. Keeping them in one object
+   means `applyShop()` is the only function that reads them, and the active-chip
+   row is generated from the same object — so what the user sees listed is
+   exactly what is filtering the grid. */
+const state = { q: '', category: 'All', min: null, max: null, rating: 0, area: '', inStock: false, discounted: false, pickup: false, sort: 'recommended' };
+
+const elGrid = document.getElementById('productGrid');
+const elCount = document.getElementById('resultCount');
+const elApplyCount = document.getElementById('filterApplyCount');
+const elEmpty = document.getElementById('gridEmpty');
+const elFootnote = document.getElementById('gridFootnote');
+const elHeading = document.getElementById('gridHeading');
+const elActive = document.getElementById('activeFilters');
+const elFilterCount = document.getElementById('filterCount');
+const elSortLabel = document.getElementById('sortLabel');
+
+/* Comparators, one per doc 12 §11 option. `days` is "days since listed", so
+   Newest sorts ascending; everything else is a descending signal. */
+const COMPARATORS = {
+    recommended: (a, b) => num(b.dataset.pop) - num(a.dataset.pop),
+    newest:      (a, b) => num(a.dataset.days) - num(b.dataset.days),
+    price_asc:   (a, b) => num(a.dataset.price) - num(b.dataset.price),
+    price_desc:  (a, b) => num(b.dataset.price) - num(a.dataset.price),
+    rated:       (a, b) => num(b.dataset.rating) - num(a.dataset.rating),
+    purchased:   (a, b) => num(b.dataset.sold) - num(a.dataset.sold),
+    discount:    (a, b) => num(b.dataset.discount) - num(a.dataset.discount)
+};
+
+function matches(card){
+    const d = card.dataset;
+    if (state.q && !d.search.includes(state.q)) return false;
+    if (state.category !== 'All' && d.category !== state.category) return false;
+    if (state.min !== null && num(d.price) < state.min) return false;
+    if (state.max !== null && num(d.price) > state.max) return false;
+    if (state.rating && num(d.rating) < state.rating) return false;
+    if (state.inStock && num(d.stock) === 0) return false;
+    if (state.discounted && num(d.discount) === 0) return false;
+    if (state.pickup && !d.pickup) return false;
+    if (state.area){
+        const areas = d.delivery ? d.delivery.split(', ') : [];
+        // "Nationwide" covers every area, so it satisfies any area asked for.
+        if (!areas.includes(state.area) && !areas.includes('Nationwide')) return false;
+    }
+    return true;
+}
+
+function activeFilterCount(){
+    let n = 0;
+    if (state.min !== null || state.max !== null) n++;
+    if (state.rating) n++;
+    if (state.area) n++;
+    if (state.inStock) n++;
+    if (state.discounted) n++;
+    if (state.pickup) n++;
+    return n;
+}
+
+/* Removable chips for everything currently narrowing the grid (doc 12 §10 wants
+   them visible, not buried in the sheet). Built with createElement + textContent
+   — a business name or search term must never be interpolated into markup. */
+function paintActiveFilters(){
+    const chips = [];
+    if (state.q) chips.push(['q', '“' + state.q + '”']);
+    if (state.category !== 'All') chips.push(['category', state.category]);
+    if (state.min !== null || state.max !== null){
+        const lo = state.min !== null ? fmt(state.min) : 'Any';
+        const hi = state.max !== null ? fmt(state.max) : 'Any';
+        chips.push(['price', lo + ' – ' + hi]);
+    }
+    if (state.rating) chips.push(['rating', state.rating + '★ & up']);
+    if (state.area) chips.push(['area', 'Delivers to ' + state.area]);
+    if (state.inStock) chips.push(['stock', 'In stock']);
+    if (state.discounted) chips.push(['discount', 'Discounted']);
+    if (state.pickup) chips.push(['pickup', 'Pickup']);
+
+    elActive.textContent = '';
+    if (!chips.length){ elActive.classList.add('hidden'); elActive.classList.remove('flex'); return; }
+    elActive.classList.remove('hidden');
+    elActive.classList.add('flex');
+
+    chips.forEach(([key, label]) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.dataset.removeFilter = key;
+        b.className = 'glass border border-primary/50 text-primary rounded-full pl-3 pr-2 py-1 text-xs font-semibold flex items-center gap-1';
+        b.append(document.createTextNode(label));
+        const x = document.createElement('span');
+        x.className = 'material-symbols-outlined text-[15px]';
+        x.textContent = 'close';
+        b.appendChild(x);
+        b.setAttribute('aria-label', 'Remove filter: ' + label);
+        elActive.appendChild(b);
+    });
+
+    const clear = document.createElement('button');
+    clear.type = 'button';
+    clear.dataset.clearFilters = '';
+    clear.className = 'text-xs text-muted underline px-1';
+    clear.textContent = 'Clear all';
+    elActive.appendChild(clear);
+}
+
+function applyShop(){
+    const visible = [];
+    CARDS.forEach(card => {
+        const ok = matches(card);
+        card.hidden = !ok;
+        if (ok) visible.push(card);
+    });
+
+    // Re-order by setting `order` — the nodes never move, so nothing reflows
+    // out from under a focused button and the sort survives the next filter.
+    visible.sort(COMPARATORS[state.sort] || COMPARATORS.recommended)
+           .forEach((card, i) => { card.style.order = i; });
+
+    elCount.textContent = visible.length;
+    elApplyCount.textContent = visible.length;
+    elEmpty.classList.toggle('hidden', visible.length > 0);
+    elFootnote.classList.toggle('hidden', visible.length === 0);
+    elGrid.classList.toggle('hidden', visible.length === 0);
+
+    // The heading names what you are actually looking at.
+    if (state.q) elHeading.textContent = 'Results for “' + state.q + '”';
+    else if (state.category !== 'All') elHeading.textContent = state.category;
+    else elHeading.textContent = state.sort === 'recommended' ? 'Recommended for you' : SORT_LABELS[state.sort];
+
+    const n = activeFilterCount();
+    elFilterCount.textContent = n;
+    elFilterCount.classList.toggle('hidden', n === 0);
+    elFilterCount.classList.toggle('flex', n > 0);
+
+    paintActiveFilters();
+}
+
+/* ---- search (doc 12 §9) ---- */
+const elSearch = document.getElementById('shopSearch');
+const elSearchClear = document.getElementById('shopSearchClear');
+
+elSearch.addEventListener('input', () => {
+    state.q = elSearch.value.trim().toLowerCase();
+    elSearchClear.classList.toggle('hidden', !elSearch.value);
+    applyShop();
+});
+elSearchClear.addEventListener('click', () => {
+    elSearch.value = '';
+    state.q = '';
+    elSearchClear.classList.add('hidden');
+    applyShop();
+    elSearch.focus();
+});
+
+/* ---- categories ----
+   The chips (mobile) and the rail rows (desktop) are two views of one value, so
+   both are repainted from `state.category` rather than from whichever was tapped. */
+function paintCategory(){
+    document.querySelectorAll('.cat-chip').forEach(b => {
+        const on = b.dataset.category === state.category;
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+        b.classList.toggle('bg-primary', on);
+        b.classList.toggle('text-background', on);
+        b.classList.toggle('border-primary', on);
+        b.classList.toggle('font-semibold', on);
+        b.classList.toggle('glass', !on);
+        b.classList.toggle('border-border', !on);
+    });
+    document.querySelectorAll('.cat-side').forEach(b => {
+        const on = b.dataset.category === state.category;
+        b.classList.toggle('bg-card', on);
+        b.classList.toggle('font-semibold', on);
+        b.classList.toggle('text-primary', on);
+    });
+}
+
+function setCategory(name){
+    state.category = name;
+    paintCategory();
+    applyShop();
+    const chip = document.querySelector('.cat-chip[data-category="' + CSS.escape(name) + '"]');
+    if (chip) chip.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+}
+
+/* ---- filter inputs ----
+   Every control writes straight into `state` and re-applies; there is no
+   "pending" copy to get out of step. The sheet's primary button only closes. */
+const elMin = document.getElementById('fMin');
+const elMax = document.getElementById('fMax');
+const elArea = document.getElementById('fArea');
+const elInStock = document.getElementById('fStock');
+const elDiscounted = document.getElementById('fDiscount');
+const elPickup = document.getElementById('fPickup');
+
+function readPrice(input){
+    const v = input.value.trim();
+    if (!v) return null;
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+}
+[elMin, elMax].forEach(input => input.addEventListener('input', () => {
+    state.min = readPrice(elMin);
+    state.max = readPrice(elMax);
+    applyShop();
+}));
+elArea.addEventListener('change', () => { state.area = elArea.value; applyShop(); });
+[[elInStock, 'inStock'], [elDiscounted, 'discounted'], [elPickup, 'pickup']].forEach(([el, key]) => {
+    el.addEventListener('change', () => { state[key] = el.checked; applyShop(); });
+});
+
+function paintRatingOptions(){
+    document.querySelectorAll('.rating-opt').forEach(b => {
+        const on = num(b.dataset.ratingFilter) === state.rating;
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        b.classList.toggle('bg-primary', on);
+        b.classList.toggle('text-background', on);
+        b.classList.toggle('border-primary', on);
+        b.classList.toggle('font-semibold', on);
+        b.classList.toggle('glass', !on);
+        b.classList.toggle('border-border', !on);
+    });
+}
+
+function clearFilters(){
+    state.min = state.max = null;
+    state.rating = 0;
+    state.area = '';
+    state.inStock = state.discounted = state.pickup = false;
+    state.q = '';
+    state.category = 'All';
+    elMin.value = elMax.value = '';
+    elArea.value = '';
+    elInStock.checked = elDiscounted.checked = elPickup.checked = false;
+    elSearch.value = '';
+    elSearchClear.classList.add('hidden');
+    paintRatingOptions();
+    paintCategory();
+    applyShop();
+}
+
+/* Removing one chip clears just that filter. */
+function removeFilter(key){
+    if (key === 'q'){ elSearch.value = ''; state.q = ''; elSearchClear.classList.add('hidden'); }
+    else if (key === 'category'){ state.category = 'All'; paintCategory(); }
+    else if (key === 'price'){ state.min = state.max = null; elMin.value = elMax.value = ''; }
+    else if (key === 'rating'){ state.rating = 0; paintRatingOptions(); }
+    else if (key === 'area'){ state.area = ''; elArea.value = ''; }
+    else if (key === 'stock'){ state.inStock = false; elInStock.checked = false; }
+    else if (key === 'discount'){ state.discounted = false; elDiscounted.checked = false; }
+    else if (key === 'pickup'){ state.pickup = false; elPickup.checked = false; }
+    applyShop();
+}
+
+/* ---- sort (doc 12 §11) ---- */
+function setSort(key){
+    if (!COMPARATORS[key]) return;
+    state.sort = key;
+    document.querySelectorAll('.sort-row').forEach(row => {
+        const on = row.dataset.sort === key;
+        row.setAttribute('aria-checked', on ? 'true' : 'false');
+        row.querySelector('.sort-tick').classList.toggle('invisible', !on);
+    });
+    elSortLabel.textContent = SORT_LABELS[key];
+    closeSheets();
+    applyShop();
+}
+
+/* ===================== SAVED (doc 12 §19) =====================
+   Device-local, and the copy says so — there is no `saved_products` table, so
+   claiming the account remembered it would be a lie the next login exposes. */
+function paintSaved(){
+    const saved = window.CartFlowStore.readSaved();
+    CARDS.forEach(c => c.classList.toggle('saved', saved.indexOf(c.dataset.slug) !== -1));
+}
+function toggleSave(slug){
+    const p = factsOf(slug);
+    if (!p) return;
+    const nowSaved = window.CartFlowStore.toggleSaved(slug);
+    paintSaved();
+    showToast(nowSaved
+        ? 'Saved on this device — your account remembers it once saving is live.'
+        : 'Removed from saved.');
+}
+
+/* ===================== CART (doc 13) =====================
+   Stores only `{slug, qty}` under `cartflow-cart`. Prices, names, images and
+   stock all come back from the cards on every paint, so a cart restored a week
+   later shows today's catalogue — or drops the line if the product is gone.
+   localStorage throws in some private-browsing modes, so every access is
+   guarded: a blocked cart must degrade to a session-only one, not a broken page. */
+let cart = [];
+
+const elCartBadge = document.getElementById('cartBadge');
+const elCartGroups = document.getElementById('cartGroups');
+const elCartEmpty = document.getElementById('cartEmpty');
+const elCartFooter = document.getElementById('cartFooter');
+const elCartSummary = document.getElementById('cartSummary');
+const elCartCountLine = document.getElementById('cartCountLine');
+
+/* Read what the device stored, then reconcile it against the catalogue this
+   page actually rendered: a slug that has left the catalogue is dropped rather
+   than resurrecting a stale price, and a quantity above today's stock is capped.
+   The reconciled list is written straight back, so the product page and the cart
+   sheet never disagree about what is in the cart. */
+function loadCart(){
+    cart = window.CartFlowStore.readCart()
+        .filter(l => cardBySlug.has(l.slug) && factsOf(l.slug).stock > 0)   // doc 12 §13
+        .map(l => ({ slug: l.slug, qty: Math.max(1, Math.min(l.qty, factsOf(l.slug).stock)) }));
+    persistCart();
+}
+function persistCart(){
+    window.CartFlowStore.writeCart(cart);
+}
+function cartUnits(){ return cart.reduce((n, l) => n + l.qty, 0); }
+
+function addToCart(slug, wanted){
+    const p = factsOf(slug);
+    if (!p) return;
+    if (p.stock === 0){ showToast('That one is out of stock.'); return; }
+
+    const line = cart.find(l => l.slug === slug);
+    const target = (line ? line.qty : 0) + Math.max(1, wanted || 1);
+    const capped = Math.min(target, p.stock);
+    if (line) line.qty = capped; else cart.push({ slug, qty: capped });
+
+    persistCart();
+    paintCart();
+    // Doc 13 §6: never silently exceed inventory — say what happened.
+    if (target > p.stock) showToast('Only ' + p.stock + ' in stock, so that is what is in your cart.');
+    else showToast(p.name + ' added to your cart.');
+}
+
+function setQty(slug, next){
+    const p = factsOf(slug);
+    const line = cart.find(l => l.slug === slug);
+    if (!p || !line) return;
+    if (next <= 0){ removeLine(slug); return; }
+    line.qty = Math.min(next, p.stock);
+    persistCart();
+    paintCart();
+}
+
+function removeLine(slug){
+    const p = factsOf(slug);
+    cart = cart.filter(l => l.slug !== slug);
+    persistCart();
+    paintCart();
+    showToast((p ? p.name : 'Item') + ' removed.');
+}
+
+/* One cart line. Every value goes in through textContent / img.src, so a product
+   name containing quotes or angle brackets is text, never markup.
+
+   The line total sits on the SAME row as the name rather than in its own right
+   column: a name, a price, a unit price and a stepper row spread across two
+   columns made every item three tall rows, and a cart is a list you scan. */
+function cartLine(p, lineQty){
+    const row = document.createElement('div');
+    row.className = 'flex gap-2.5 py-2.5 border-t border-border first:border-0 first:pt-0';
+
+    const img = document.createElement('img');
+    img.src = p.image;
+    img.alt = p.alt;
+    img.loading = 'lazy';
+    img.className = 'w-14 h-14 rounded-xl object-cover shrink-0';
+
+    const mid = document.createElement('div');
+    mid.className = 'min-w-0 flex-1';
+
+    const top = document.createElement('div');
+    top.className = 'flex items-start justify-between gap-2';
+
+    const name = document.createElement('p');
+    name.className = 'text-[13px] font-semibold line-clamp-2 leading-snug min-w-0';
+    name.textContent = p.name;
+
+    const total = document.createElement('span');
+    total.className = 'text-[13px] font-bold shrink-0';
+    total.textContent = fmt(p.price * lineQty);
+
+    top.append(name, total);
+
+    const unit = document.createElement('p');
+    unit.className = 'text-[11.5px] text-muted mt-0.5';
+    unit.textContent = fmt(p.price) + ' each' + (p.stock <= 5 ? ' · only ' + p.stock + ' left' : '');
+
+    const steppers = document.createElement('div');
+    steppers.className = 'flex items-center gap-1.5 mt-1.5';
+
+    const mkStep = (attr, icon, label, disabled) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.dataset[attr] = p.slug;
+        b.disabled = disabled;
+        b.setAttribute('aria-label', label + ' ' + p.name);
+        b.className = 'w-7 h-7 rounded-full glass border border-border flex items-center justify-center' + (disabled ? ' opacity-40' : '');
+        const s = document.createElement('span');
+        s.className = 'material-symbols-outlined text-[16px]';
+        s.textContent = icon;
+        b.appendChild(s);
+        return b;
+    };
+
+    const count = document.createElement('span');
+    count.className = 'w-5 text-center text-[12.5px] font-bold';
+    count.textContent = lineQty;
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.dataset.cartRemove = p.slug;
+    remove.className = 'ml-auto text-[11.5px] font-semibold text-danger px-1.5 py-1';
+    remove.textContent = 'Remove';
+
+    steppers.append(
+        mkStep('cartMinus', 'remove', 'Decrease quantity of', lineQty <= 1),
+        count,
+        mkStep('cartPlus', 'add', 'Increase quantity of', lineQty >= p.stock),
+        remove
+    );
+    mid.append(top, unit, steppers);
+
+    row.append(img, mid);
+    return row;
+}
+
+function paintCart(){
+    const units = cartUnits();
+    elCartBadge.textContent = units;
+    elCartBadge.classList.toggle('hidden', units === 0);
+    elCartBadge.classList.toggle('flex', units > 0);
+
+    elCartEmpty.classList.toggle('hidden', units > 0);
+    elCartFooter.classList.toggle('hidden', units === 0);
+    elCartSummary.classList.toggle('hidden', units === 0);
+    elCartGroups.textContent = '';
+
+    if (!units){
+        elCartCountLine.textContent = 'Nothing in it yet';
+        return;
+    }
+
+    // Doc 13 §5: grouped by business, because each business ships separately.
+    const groups = new Map();
+    cart.forEach(l => {
+        const p = factsOf(l.slug);
+        if (!p) return;
+        if (!groups.has(p.business)) groups.set(p.business, []);
+        groups.get(p.business).push([p, l.qty]);
+    });
+
+    elCartCountLine.textContent = units + (units === 1 ? ' item' : ' items') +
+        ' from ' + groups.size + (groups.size === 1 ? ' business' : ' businesses');
+
+    let gross = 0, payable = 0;
+
+    groups.forEach((lines, business) => {
+        const section = document.createElement('section');
+        section.className = 'glass rounded-2xl px-3 py-2.5';
+
+        const head = document.createElement('div');
+        head.className = 'flex items-center gap-1.5 mb-0.5';
+        const icon = document.createElement('span');
+        icon.className = 'material-symbols-outlined text-[16px] text-primary';
+        icon.textContent = 'storefront';
+        const title = document.createElement('h4');
+        title.className = 'text-[12.5px] font-bold truncate';
+        title.textContent = business;
+        head.append(icon, title);
+        section.appendChild(head);
+
+        lines.forEach(([p, lineQty]) => {
+            gross += (p.was || p.price) * lineQty;
+            payable += p.price * lineQty;
+            section.appendChild(cartLine(p, lineQty));
+        });
+
+        const note = document.createElement('p');
+        note.className = 'text-[10.5px] text-muted mt-1.5';
+        note.textContent = 'Delivery for ' + business + ' is set at checkout.';
+        section.appendChild(note);
+
+        elCartGroups.appendChild(section);
+    });
+
+    document.getElementById('sumProducts').textContent = fmt(gross);
+    document.getElementById('sumDiscount').textContent = '−' + fmt(gross - payable);
+    document.getElementById('sumTotal').textContent = fmt(payable);
+}
+
+/* Doc 13 §19 lists POST /api/checkout. It does not exist, there is no payment
+   provider wired and no `orders` table, so this says so instead of showing a
+   receipt for an order nobody will ever fulfil. */
+document.getElementById('checkoutBtn').addEventListener('click', () => {
+    showToast('Checkout needs CartFlow payments and escrow, which are not live yet. Your cart is saved.');
+});
+
+/* ===================== ONE DELEGATED LISTENER =====================
+   Covers server-rendered cards, JS-built cart lines and related tiles alike. It
+   is also why nothing here needs an inline handler: an entity-escaped apostrophe
+   is decoded by the HTML parser before the JS compiles, so a name like
+   "Chef's Special" in an onclick would terminate the string early. */
+document.addEventListener('click', (e) => {
+    const t = e.target;
+
+    const opener = t.closest('[data-open-sheet]');
+    if (opener){ openSheet(opener.dataset.openSheet); return; }
+    if (t.closest('[data-close-sheet]')){ closeSheets(); return; }
+
+    const add = t.closest('[data-add]');
+    if (add){ addToCart(add.dataset.add, 1); return; }
+
+    const save = t.closest('[data-save]');
+    if (save){ toggleSave(save.dataset.save); return; }
+
+    /* Matched by CLASS, not by [data-category]: every `.shop-card` also carries
+       data-category (applyShop reads it), so a selector-based lookup would turn
+       a tap on a card's padding into a category change. */
+    const cat = t.closest('.cat-chip, .cat-side');
+    if (cat){ setCategory(cat.dataset.category); return; }
+
+    const sort = t.closest('[data-sort]');
+    if (sort){ setSort(sort.dataset.sort); return; }
+
+    const rating = t.closest('[data-rating-filter]');
+    if (rating){
+        state.rating = num(rating.dataset.ratingFilter);
+        paintRatingOptions();
+        applyShop();
+        return;
+    }
+
+    const remove = t.closest('[data-remove-filter]');
+    if (remove){ removeFilter(remove.dataset.removeFilter); return; }
+
+    if (t.closest('[data-clear-filters]')){ clearFilters(); return; }
+
+    const minus = t.closest('[data-cart-minus]');
+    if (minus){
+        const line = cart.find(l => l.slug === minus.dataset.cartMinus);
+        if (line) setQty(line.slug, line.qty - 1);
+        return;
+    }
+    const plus = t.closest('[data-cart-plus]');
+    if (plus){
+        const line = cart.find(l => l.slug === plus.dataset.cartPlus);
+        if (line) setQty(line.slug, line.qty + 1);
+        return;
+    }
+    const rm = t.closest('[data-cart-remove]');
+    if (rm){ removeLine(rm.dataset.cartRemove); return; }
+});
+
+/* ===================== INIT ===================== */
+paintSaved();
+loadCart();
+paintCart();
+paintRatingOptions();
+paintCategory();
+
+/* `?q=` / `?category=` are honoured client-side so links from elsewhere in the
+   app can land on a pre-filtered Shop before the route grows those params. */
+const params = new URLSearchParams(window.location.search);
+const initialQ = (params.get('q') || '').trim();
+if (initialQ){
+    elSearch.value = initialQ;
+    state.q = initialQ.toLowerCase();
+    elSearchClear.classList.remove('hidden');
+}
+const initialCat = params.get('category');
+if (initialCat && Array.from(document.querySelectorAll('.cat-chip')).some(b => b.dataset.category === initialCat)){
+    state.category = initialCat;
+    paintCategory();
+}
+
+/* `?cart=1` — the product page's "View cart" link. A shopper who taps it wants
+   the cart, not the grid with a badge to find. */
+if (params.get('cart') === '1' && cartUnits() > 0) openSheet('cartSheet');
+
+applyShop();
+window.cfParseEmoji && window.cfParseEmoji(document.body);
+</script>
+{% endblock %}
+
+

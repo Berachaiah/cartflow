@@ -1,0 +1,23 @@
+/* Build input for Tailwind. Compiles to css/tailwind.css.
+ *
+ * Three directives and nothing else, deliberately. The CDN build injected
+ * base + components + utilities and no more, so anything added here would be a
+ * change of behaviour smuggled in under a change of delivery. The app's own
+ * styles stay where they are, in cartflow-ui.css.
+ *
+ * ORDER IS LOAD-BEARING. `@tailwind base` is Preflight — it resets margins,
+ * list styles, heading sizes and form control appearance. base.html loads the
+ * compiled output BEFORE cartflow-ui.css, exactly where the CDN <script> used
+ * to sit, so cartflow-ui.css still wins every conflict it used to win. Swapping
+ * those two <link> tags would silently hand hundreds of declarations to
+ * Preflight instead.
+ *
+ * Rebuild after touching any template, any file in app/static/js, or
+ * app/routers/pages.py:
+ *
+ *   npx tailwindcss -i app/static/css/tailwind-input.css \
+ *                   -o app/static/css/tailwind.css --minify
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

@@ -1,0 +1,445 @@
+[
+	{
+		"name": "Adekunle Ajasin University",
+		"abbreviation": "AAUA",
+		"state": "Ondo",
+		"city": "Akungba-Akoko"
+	},
+	{
+		"name": "Federal University of Agriculture, Abeokuta Ogun",
+		"abbreviation": "FUNAAB",
+		"state": "Ogun",
+		"city": "FUNAAB"
+	},
+	{
+		"name": "Abia State University",
+		"abbreviation": "ABSU",
+		"state": "Abia",
+		"city": "Uturu"
+	},
+	{
+		"name": "Adekunle Ajasin University",
+		"abbreviation": "AAUA",
+		"state": "Ondo",
+		"city": "Akungba-Akoko"
+	},
+	{
+		"name": "Abia State University",
+		"abbreviation": "ABSU",
+		"state": "Abia",
+		"city": "Uturu"
+	},
+	{
+		"name": "Abia State University",
+		"abbreviation": "ABSU",
+		"state": "Abia",
+		"city": "Uturu"
+	},
+	{
+		"name": "Joseph Ayo Babalola University",
+		"abbreviation": "JABU",
+		"state": "Osun",
+		"city": "Ikeji-Arakeji"
+	},
+	{
+		"name": "Redeemer's University Nigeria",
+		"abbreviation" : "RUN",
+		"state": "Osun",
+		"city": "Ede"
+	},
+	{
+		"name": "Afe Babalola University",
+		"abbreviation": "ABUAD",
+		"state": "Ekiti",
+		"city": "Ado-Ekiti",
+		"latitude": "7.6110",
+		"longitude": "5.2571"
+	},
+	{
+		"name": "Akwa Ibom State University",
+		"abbreviation": "AKSU",
+		"state": "Akwa Ibom",
+		"city": "Uyo"
+	}, 
+	{
+		"name": "American University of Nigeria",
+		"abbreviation": "AUN",
+		"state": "Adamawa",
+		"city": "Yola"
+	},
+	{
+
+		"name": "Abubakar Tafawa Balewa University",
+		"abbreviation": "ATBU",
+		"state": "Bauchi",
+		"city": "Bauchi"
+	},
+	{
+		"name": "Abubakar Tafawa Balewa University",
+		"abbreviation": "ATBU",
+		"state": "Bauchi",
+		"city": "Bauchi"
+	},
+	{
+		"name": "Adamawa State University",
+		"abbreviation": "ADSU",
+		"state": "Adamawa",
+		"city": "Mubi"
+	},
+	{
+		"name": "Achievers University",
+		"abbreviation": "AC",
+		"state": "Ondo",
+		"city": "Owo"
+	},
+	{
+		"name": "Ahmadu Bello University",
+		"abbreviation": "ABU",
+		"state": "Kaduna",
+		"city": "Zaria"
+	},
+	{
+		"name": "Al-Hikmah University",
+		"abbreviation": "AHU",
+		"state": "Kwara",
+		"city": "Ilorin"
+	},
+	{
+		"name": "Ambrose Alli University",
+		"abbreviation": "AAU",
+		"state": "Edo",
+		"city": "Ekpoma"
+	},
+	{
+		"name": "Anambra State University",
+		"abbreviation": "ANSU",
+		"state": "Anambra",
+		"city": "Uli"
+	},
+	{
+		"name": "Ajayi Crowther University",
+		"abbreviation": "ACU",
+		"state": "Oyo",
+		"city": "Oyo"
+	},
+	{
+		"name": "Babcock University",
+		"abbreviation": "BU",
+		"state": "Ogun",
+		"city": "Ikenne",
+		"latitude": "6.8940",
+		"longitude": "3.7187"
+	},
+	{
+		"name": "Bayero University",
+		"abbreviation": "BUK",
+		"state": "Kano",
+		"city": "Kano"
+	},
+	{
+		"name": "Bayero University",
+		"abbreviation": "BU",
+		"state": "Ogun",
+		"city": "Ilishan-Remo"
+	},
+	{
+		"name": "Bells University of Technology",
+		"abbreviation": "BUT",
+		"state": "Ogun",
+		"city": "Ota"
+	},
+	{
+		"name": "Benson Idahosa University",
+		"abbreviation": "BIU",
+		"state": "Edo",
+		"city": "Benin City"
+	},
+	{
+		"name": "Benue State University",
+		"abbreviation": "BSU",
+		"state": "Benue",
+		"city": "Makurdi"
+	},
+	{
+		"name": "ECWA Bingham University",
+		"abbreviation": "BU",
+		"state": "Nassarawa",
+		"city": "New Karu"
+	},
+	{
+		"name": "Bowen University",
+		"abbreviation": "BU",
+		"state": "Osun",
+		"city": "Iwo"
+	},
+	{
+		"name": "Bukar Abba Ibrahim University",
+		"abbreviation": "YSU",
+		"state": "Yobe",
+		"city": "Damaturu"
+	},
+	{
+		"name": "CETEP City University",
+		"abbreviation": "CU",
+		"state": "Lagos",
+		"city": "Lagos"
+	},
+
+	{
+		"name": "Caleb University",
+		"abbreviation": "CUL",
+		"state": "Lagos",
+		"city": "Ikorodu"
+	},
+	{
+		"name": "Caritas University",
+		"abbreviation": "CU",
+		"state": "Enugu",
+		"city": "Enugu"
+	},
+	{
+		"name": "City University Lagos",
+		"abbreviation": "CU",
+		"state": "Lagos",
+		"city": "Yaba"
+	},
+	{
+		"name": "National Open University of Nigeria",
+		"abbreviation": "NOUN",
+		"state": "Lagos",
+		"city": "Victoria Island"
+	},
+	{
+		"name": "City University of Technology",
+		"abbreviation": "CUT",
+		"state": "Kaduna",
+		"city": "Kaduna"
+	},
+	{
+		"name": "Covenant University",
+		"abbreviation": "CU",
+		"state": "Ogun",
+		"city": "Ota",
+		"latitude": "6.6726",
+		"longitude": "3.1612"
+	},
+	{
+		"name": "Crawford University",
+		"abbreviation": "CU",
+		"state": "Ogun",
+		"city": "Igbesa"
+	},
+	{
+		"name": "Crescent University",
+		"abbreviation": "CU",
+		"state": "Ogun",
+		"city": "Abeokuta"
+	},
+	{
+		"name": "Cross River University of Technology",
+		"abbreviation": "CRUTECH",
+		"state": "Cross River",
+		"city": "Calabar"
+	},
+	{
+		"name": "Delta State University",
+		"abbreviation": "DELSU",
+		"state": "Delta",
+		"city": "Abraka",
+		"latitude": "33.7454",
+		"longitude": "90.7355"
+	},	
+	{
+		"name": "Ebonyi State University",
+		"abbreviation": "EBSU",
+		"state": "Ebonyi",
+		"city": "Abakaliki"
+	},
+	{
+		"name": "Evangel University, Akaeze",
+		"abbreviation": "EUA",
+		"state": "Ebonyi",
+		"city": "Akaeze"
+	},
+	{
+		"name": "Elizade University",
+		"abbreviation": "",
+		"state": "Ondo",
+		"city": "Ilara-Mokin"
+	},
+	{
+		"name": "Fountain University, Osogbo",
+		"abbreviation": "FUO",
+		"state": "Osun",
+		"city": "Osogbo"
+	},
+	{
+		"name": "Federal University, Dutsin-Ma",
+		"abbreviation": "FUDM",
+		"state": "Katsina",
+		"city": "Katsina"
+	},
+	{
+		"name": "Federal University of Technology, Akure",
+		"abbreviation": "FUTA",
+		"state": "Ondo",
+		"city": "Akure"
+	},
+	{
+		"name": "Federal University Ndufe Alike, Ikwo",
+		"abbreviation": "FUNAI",
+		"state": "Ikwo",
+		"city": "Ikwo"
+	},
+	{
+		"name": "Gregory University",
+		"abbreviation": "",
+		"state": "Abia",
+		"city": "Uturu"
+	},
+	{
+		"name": "Godfrey Okoye University",
+		"abbreviation": "GUO",
+		"state": "Enugu",
+		"city": "Enugu"
+	},
+	{
+		"name": "Igbinedion University",
+		"abbreviation": "IOU",
+		"state": "Edo",
+		"city": "Okada"
+	},
+	{
+		"name": "Koladaisi University",
+		"abbreviation": "KU",
+		"state": "Oyo",
+		"city": "Ibadan"
+	},
+	{
+		"name": "Ladoke Akintola University of Technology",
+		"abbreviation": "LAUTECH",
+		"state": "Oyo",
+		"city": "Ogbomoso",
+		"latitude": "8.142165",
+		"longitude": "4.245186"
+	},
+	{
+		"name": "Oduduwa University, Osun",
+		"abbreviation": "OUI",
+		"state": "Ipetumodu",
+		"city": "Ile-Ife"
+	},
+	{
+		"name": "Obafemi Awolowo University",
+		"abbreviation": "OAU",
+		"state": "Osun",
+		"city": "Ile-Ife",
+		"latitude": "7.5165",
+		"longitude": "4.5286"
+
+	},
+	{
+		"name": "Landmark University, Kwara",
+		"abbreviation": "LU",
+		"state": "Kwara",
+		"city": "Omu-Aran"
+	},
+	{
+		"name": "Michael and Cecilia Ibru University",
+		"abbreviation": "MCIU",
+		"state": "Delta",
+		"city": "Agbara-Otor"
+	},
+	{
+		"name": "Lagos State University",
+		"abbreviation": "LASU",
+		"state": "Lagos",
+		"city": "Ojo"
+	},
+	{
+		"name": "Nigerian Turkish Nile University",
+		"abbreviation": "NTNU",
+		"state": "FCT",
+		"city": "Abuja"
+	},
+	{
+		"name": "Taraba State University",
+		"abbreviation": "",
+		"state": "Taraba",
+		"city": "Jalingo"
+	},
+	{
+		"name": "University of Benin",
+		"abbreviation": "UNIBEN",
+		"state": "Edo",
+		"city": "Benin City",
+		"latitude": "6.3931",
+		"longitude": "5.6195"
+	},
+	{
+		"name": "University of Calabar",
+		"abbreviation": "UNICAL",
+		"state": "Cross River",
+		"city": "Calabar"
+	},
+	{
+		"name": "University of Ibadan",
+		"abbreviation": "UI",
+		"state": "Oyo",
+		"city": "Ibadan",
+		"latitude": "7.4443",
+		"longitude": "3.8995"
+	},
+	{
+		"name": "Umaru Musa Yar'adua University Katsina",
+		"abbreviation": "UMYU",
+		"state": "Katsina",
+		"city": "Katsina"
+	},
+	{
+		"name": "University of Ilorin",
+		"abbreviation": "UNILORIN",
+		"state": "Kwara",
+		"city": "Ilorin",
+		"latitude":"8.4912",
+		"longitude":"4.5950"
+
+	},
+	{
+		"name": "University of Lagos",
+		"abbreviation": "UNILAG",
+		"state": "Lagos",
+		"city": "Lagos",
+		"latitude":"6.5151",
+		"longitude":"3.3886"
+	},
+	{
+		"name": "University of Port Harcourt",
+		"abbreviation": "UNIPORT",
+		"state": "Rivers",
+		"city": "Port Harcourt"
+	},
+	{
+		"name": "University of Nigeria, Nsukka",
+		"abbreviation": "UNN",
+		"state": "Enugu",
+		"city": "Nsukka",
+		"latitude": "6.8645",
+		"longitude": "7.4083"
+
+	},
+	{
+		"name": "Veritas University (Catholic University of Nigeria)",
+		"abbreviation": "VUNA",
+		"state": "Abuja",
+		"city": "Bwari"
+	},
+	{
+		"name": "University of Abuja",
+		"abbreviation": "UNIABUJA",
+		"state": "Abuja",
+		"city": "Gwagwalada"
+	},
+	
+]
+

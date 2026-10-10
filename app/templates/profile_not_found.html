@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{# ==========================================================================
+   PROFILE NOT FOUND — the 404 for /@handle.
+
+   Served at status 404 by the page route (app/routers/pages.py), which catches
+   the NotFoundError itself: register_exception_handlers turns every
+   AppException into the JSON error envelope, which is right for /api/* and
+   wrong for somebody who tapped an @mention in a caption.
+
+   This page is deliberately identical for a handle that never existed, one
+   that was soft-deleted, and one that is suspended — the route funnels all
+   three into the same branch, so nothing here can confirm that a hidden
+   account exists. Keep it that way: no "this account was deactivated" copy.
+
+   `handle` is the raw path segment, length-capped to 30 chars in the route and
+   escaped by Jinja on render.
+========================================================================== #}
+
+{% block content %}
+<div class="max-w-md mx-auto pt-10 sm:pt-16 pb-10 text-center">
+
+    <div class="glass panel p-7 sm:p-9">
+        <span class="w-16 h-16 rounded-2xl bg-card border border-border inline-flex items-center justify-center mb-5" aria-hidden="true">
+            <span class="material-symbols-outlined text-[30px] text-muted">person_off</span>
+        </span>
+
+        <h1 class="font-display text-2xl sm:text-3xl font-bold leading-tight">
+            This profile isn't available
+        </h1>
+
+        {% if handle %}
+        <p class="caption-text mt-3 leading-relaxed">
+            We couldn't find <span class="font-semibold text-[var(--c-text)] break-all">@{{ handle }}</span>
+            on CartFlow. The handle may have been mistyped, or the account is no longer active.
+        </p>
+        {% else %}
+        <p class="caption-text mt-3 leading-relaxed">
+            We couldn't find that account on CartFlow.
+        </p>
+        {% endif %}
+
+        <div class="flex flex-col sm:flex-row gap-3 mt-7">
+            <a href="/discover" class="btn-glow flex-1 bg-primary text-background font-bold rounded-full py-3 flex items-center justify-center gap-2">
+                <span class="material-symbols-outlined text-[20px]">search</span>
+                Search people
+            </a>
+            <a href="/" class="glass flex-1 font-semibold rounded-full py-3 flex items-center justify-center gap-2 hover-card">
+                <span class="material-symbols-outlined text-[20px]">home</span>
+                Back home
+            </a>
+        </div>
+    </div>
+
+    {% if not current_user %}
+    <p class="caption-text mt-6">
+        Some profiles are only visible when you're signed in.
+        <a href="/login" class="text-primary font-semibold hover:underline">Log in</a>
+    </p>
+    {% endif %}
+
+</div>
+{% endblock %}

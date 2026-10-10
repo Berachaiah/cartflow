@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+  <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
+    <div>
+      {# Page-title step, same as page_head() renders on every other screen. This
+         was text-3xl/4xl, which read as a different app's page. #}
+      <h1 class="font-display text-lg sm:text-xl font-black leading-tight mb-1">University directory</h1>
+      <p class="caption-text text-[12.5px] leading-snug">Find your school. Selecting one fills the signup form.</p>
+    </div>
+    <a href="/request-organization" class="inline-flex items-center gap-1.5 glass rounded-xl px-4 py-2.5 hover-card text-sm font-semibold shrink-0">
+      <span class="material-symbols-outlined text-[18px]">add_business</span> Request a university
+    </a>
+  </div>
+
+  <!-- filters -->
+  <div class="glass rounded-2xl p-4 mb-5 flex flex-col sm:flex-row gap-3">
+    <div class="relative flex-1">
+      <span class="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-muted text-[18px]">search</span>
+      <input id="dir_search" type="text" autocomplete="off" placeholder="Search by name…"
+        class="w-full bg-card border border-border rounded-xl pl-10 pr-4 py-2.5 text-sm outline-none focus:border-primary transition">
+    </div>
+    <select id="dir_state"
+      class="bg-card border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary transition sm:w-56">
+      <option value="">All states</option>
+    </select>
+  </div>
+
+  <!-- results table -->
+  <div class="glass rounded-2xl overflow-hidden">
+    <div class="hidden sm:grid grid-cols-12 gap-4 px-5 py-3 text-xs font-semibold text-muted uppercase tracking-wide border-b border-border">
+      <div class="col-span-6">University</div>
+      <div class="col-span-2">Short</div>
+      <div class="col-span-3">State</div>
+      <div class="col-span-1"></div>
+    </div>
+    <div id="dir_rows"></div>
+    <div id="dir_empty" class="hidden px-5 py-12 text-center caption-text text-sm">
+      No universities match your filters.
+      <a href="/request-organization" class="text-primary font-semibold hover:underline">Request one?</a>
+    </div>
+    <div id="dir_loading" class="px-5 py-12 text-center text-muted text-sm">Loading…</div>
+  </div>
+
+  <!-- pagination -->
+  <div id="dir_pager" class="hidden mt-5 flex items-center justify-between gap-3">
+    <p class="text-xs text-muted"><span id="dir_count">0</span> universities</p>
+    <div class="flex items-center gap-2">
+      <button id="dir_prev" class="glass rounded-xl w-9 h-9 flex items-center justify-center hover-card disabled:opacity-40 disabled:cursor-not-allowed">
+        <span class="material-symbols-outlined text-[18px]">chevron_left</span>
+      </button>
+      <span class="text-sm font-medium">Page <span id="dir_page">1</span> / <span id="dir_pages">1</span></span>
+      <button id="dir_next" class="glass rounded-xl w-9 h-9 flex items-center justify-center hover-card disabled:opacity-40 disabled:cursor-not-allowed">
+        <span class="material-symbols-outlined text-[18px]">chevron_right</span>
+      </button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+<script src="{{ url_for('static', path='js/cartflow-forms.js') }}"></script>
+<script>
+(function () {
+  const searchEl = document.getElementById("dir_search");
+  const stateEl = document.getElementById("dir_state");
+  const rowsEl = document.getElementById("dir_rows");
+  const emptyEl = document.getElementById("dir_empty");
+  const loadingEl = document.getElementById("dir_loading");
+  const pagerEl = document.getElementById("dir_pager");
+
+  const PER_PAGE = 20;
+  let page = 1;
+
+  // populate the state dropdown
+  NG_STATES.forEach((s) => {
+    const o = document.createElement("option");
+    o.value = s; o.textContent = s;
+    stateEl.appendChild(o);
+  });
+
+  function rowTemplate(org) {
+    const state = org.state || "—";
+    const short = org.short_name || "—";
+    return (
+      '<button type="button" data-id="' + esc(org.id) + '" data-name="' + esc(org.official_name) + '" ' +
+      'class="dir-row w-full text-left grid grid-cols-1 sm:grid-cols-12 gap-1 sm:gap-4 px-5 py-3.5 border-b border-border last:border-0 hover:bg-primary/5 transition items-center">' +
+        '<span class="sm:col-span-6 font-medium">' + esc(org.official_name) + "</span>" +
+        '<span class="sm:col-span-2 text-sm text-muted">' + esc(short) + "</span>" +
+        '<span class="sm:col-span-3 text-sm caption-text">' + esc(state) + "</span>" +
+        '<span class="sm:col-span-1 text-right text-primary text-xs font-semibold">Select →</span>' +
+      "</button>"
+    );
+  }
+
+  async function load() {
+    loadingEl.classList.remove("hidden");
+    emptyEl.classList.add("hidden");
+    rowsEl.innerHTML = "";
+    const params = new URLSearchParams({ page: String(page), per_page: String(PER_PAGE), type: "university" });
+    const q = searchEl.value.trim();
+    // The directory endpoint filters by state/country/type; name search is the
+    // typeahead endpoint. When a name query is present, use search (top matches)
+    // and skip pagination; otherwise page through the full directory.
+    try {
+      let items, total, pages;
+      if (q.length >= 2) {
+        items = await getJSON("/api/organizations/search?q=" + encodeURIComponent(q) + "&limit=20");
+        total = items.length; pages = 1; page = 1;
+        if (stateEl.value) items = items.filter((o) => o.state === stateEl.value);
+      } else {
+        if (stateEl.value) params.set("state", stateEl.value);
+        const data = await getJSON("/api/organizations?" + params.toString());
+        items = data.items; total = data.total; pages = data.pages; page = data.page;
+      }
+      loadingEl.classList.add("hidden");
+      if (!items.length) {
+        emptyEl.classList.remove("hidden");
+        pagerEl.classList.add("hidden");
+        return;
+      }
+      rowsEl.innerHTML = items.map(rowTemplate).join("");
+      rowsEl.querySelectorAll(".dir-row").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const url = "/signup?org_id=" + encodeURIComponent(btn.dataset.id) +
+                      "&org_name=" + encodeURIComponent(btn.dataset.name);
+          window.location.href = url;
+        });
+      });
+      document.getElementById("dir_count").textContent = total;
+      document.getElementById("dir_page").textContent = page;
+      document.getElementById("dir_pages").textContent = pages;
+      document.getElementById("dir_prev").disabled = page <= 1;
+      document.getElementById("dir_next").disabled = page >= pages;
+      pagerEl.classList.remove("hidden");
+    } catch (err) {
+      loadingEl.classList.add("hidden");
+      emptyEl.textContent = "Couldn’t load the directory. Please retry.";
+      emptyEl.classList.remove("hidden");
+    }
+  }
+
+  searchEl.addEventListener("input", debounce(() => { page = 1; load(); }, 300));
+  stateEl.addEventListener("change", () => { page = 1; load(); });
+  document.getElementById("dir_prev").addEventListener("click", () => { if (page > 1) { page--; load(); } });
+  document.getElementById("dir_next").addEventListener("click", () => { page++; load(); });
+
+  load();
+})();
+</script>
+{% endblock %}

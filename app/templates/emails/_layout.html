@@ -1,0 +1,124 @@
+{#
+  Base layout for every transactional email.
+
+  This is the APP'S THEME, in an inbox. The palette below is the dark theme from
+  app/templates/base.html, converted to what email can actually render:
+
+    app CSS var        this file    role
+    --c-bg   #07111F   #07111F      page background
+    --c-card #152742   #152742      the card
+    --c-border         #22364F      solid stand-in for rgba(255,255,255,.08):
+                                    rgba() is unreliable across clients, so the
+                                    border is the composited colour, hardcoded.
+    --c-surface #0E1B2F #0E1B2F     inset panels (the OTP box)
+    primary  #7CC6FF   #7CC6FF      buttons and links, with #07111F text on top
+                                    (the app's `bg-primary text-background`)
+
+  Email clients are not browsers. The constraints that shape this file:
+    - No external stylesheets and no <link>: Gmail strips them. Everything
+      is inline styles or a <style> block that only holds media queries.
+    - Tables for layout, not flex/grid: Outlook (Word rendering engine)
+      does not support either.
+    - No CSS variables. No client resolves var(), which is why the palette
+      above is duplicated as literal hex rather than referenced.
+    - No web fonts: they fail silently in most clients. Fraunces (the app's
+      display face) cannot load, so the wordmark uses Georgia — the nearest
+      system serif — and body text uses a system sans stack.
+    - Buttons are padded <a> tags. <button> does nothing in an email.
+    - The logo is a remote image, and most clients block those by default.
+      The wordmark is therefore printed as TEXT next to it: with images off
+      the mail still reads as CartFlow, not as a broken box.
+
+  Children fill: preheader, heading, body_content.
+#}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="x-apple-disable-message-reformatting">
+{# Tells Gmail / Apple Mail / Outlook.com that this design already handles dark
+   mode. Without it they run their own colour inversion over the message, which
+   turns a deliberately dark palette into mud (light text on light patches). #}
+<meta name="color-scheme" content="dark light">
+<meta name="supported-color-schemes" content="dark light">
+<title>{% block subject %}CartFlow{% endblock %}</title>
+<style>
+  /* Only media queries live here — inline styles cover the rest, because
+     many clients drop <style> entirely. */
+  @media only screen and (max-width: 600px) {
+    .cf-container { width: 100% !important; }
+    .cf-pad { padding-left: 22px !important; padding-right: 22px !important; }
+    .cf-otp { font-size: 30px !important; letter-spacing: 7px !important; }
+  }
+</style>
+</head>
+<body style="margin:0; padding:0; background-color:#07111F; -webkit-font-smoothing:antialiased;">
+
+{# Preheader: the grey preview line next to the subject in an inbox list.
+   Hidden in the body itself — the colour matches the page background so it
+   stays invisible in clients that ignore display:none. Without it, clients
+   scrape the first visible text, which reads like a broken fragment. #}
+<div style="display:none; font-size:1px; color:#07111F; line-height:1px; max-height:0; max-width:0; opacity:0; overflow:hidden;">
+  {% block preheader %}{% endblock %}
+</div>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+       style="background-color:#07111F;">
+  <tr>
+    <td align="center" style="padding:32px 12px;">
+
+      <table role="presentation" class="cf-container" width="600" cellpadding="0" cellspacing="0" border="0"
+             style="width:600px; max-width:600px;">
+
+        <!-- brand: logo image + text wordmark, so a blocked image still reads -->
+        <tr>
+          <td align="center" style="padding-bottom:10px;">
+            <img src="{{ LOGO_URL }}" width="52" height="52" alt="CartFlow"
+                 style="display:block; border:0; outline:none; text-decoration:none; width:52px; height:52px;">
+          </td>
+        </tr>
+        <tr>
+          <td align="center" style="padding-bottom:24px;">
+            <span style="font-family:Georgia,'Times New Roman',serif; font-size:25px; font-weight:bold; color:#FFFFFF; letter-spacing:-0.4px;">
+              CartFlow
+            </span>
+          </td>
+        </tr>
+
+        <!-- card -->
+        <tr>
+          <td class="cf-pad"
+              style="background-color:#152742; border-radius:16px; padding:38px 40px;
+                     border:1px solid #22364F;">
+
+            <h1 style="margin:0 0 16px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;
+                       font-size:21px; line-height:1.3; font-weight:700; color:#FFFFFF;">
+              {% block heading %}{% endblock %}
+            </h1>
+
+            <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;
+                        font-size:15px; line-height:1.6; color:#C7D2E1;">
+              {% block body_content %}{% endblock %}
+            </div>
+
+          </td>
+        </tr>
+
+        <!-- footer -->
+        <tr>
+          <td class="cf-pad" style="padding:24px 40px 0;">
+            <p style="margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;
+                      font-size:12px; line-height:1.6; color:#6F8099; text-align:center;">
+              CartFlow — social commerce for campus communities.<br>
+              This is an automated message, so replies to it aren't monitored.
+            </p>
+          </td>
+        </tr>
+
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>

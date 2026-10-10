@@ -1,0 +1,113 @@
+{# ==========================================================================
+   SHARED UI PRIMITIVES.
+
+   These five macros existed twice — once in orders.html and once in
+   dashboard.html — with different numbers each time: the same empty state was
+   `p-6 sm:p-10` with a 56px tile and an `text-lg sm:text-xl` title on one page
+   and `p-6 sm:p-8` with a 48px tile and a `font-semibold` title on the other.
+   That is how two pages in one app end up feeling like two apps, so there is now
+   one definition and the pages import it:
+
+       {% from "partials/ui.html" import empty_state, soon, section_head %}
+
+   The scale is the one base.html's LAYOUT SCALE block sets and the profile
+   header uses: 15px section titles, 13px body, a 44px icon tile, 8px of
+   breathing room rather than 40px. Everything here is content-agnostic — no
+   macro decides what is true, only how it looks.
+========================================================================== #}
+
+
+{# A "Soon" chip. NEVER rendered without a reason: a chip that says only "Soon"
+   is a promise with nothing behind it, and both pages that use this are pages
+   where most features genuinely don't exist yet. The reason goes in the tooltip
+   so the chip stays one word wide. #}
+{% macro soon(reason) %}
+<span class="soon-chip" title="{{ reason }}">
+    <span class="material-symbols-outlined text-[12px]" aria-hidden="true">schedule</span>Soon
+</span>
+{% endmacro %}
+
+
+{# An empty state. Vertical, centred, and deliberately SHORT: an empty tab is
+   the most common thing a new account sees, so it should read as "nothing here
+   yet" in one glance rather than filling the screen explaining itself.
+
+   `cta_href` is only ever a route that exists — a button to nowhere is worse
+   than no button. `tone`: "primary" for the one action a page wants you to take,
+   "quiet" for a side-panel nudge. `framed` draws the dashed border; pass false
+   when the caller already owns a panel. #}
+{% macro empty_state(icon, title, body, cta_label=None, cta_href=None,
+                     tone="primary", framed=true) %}
+<div class="{{ 'panel border border-dashed border-border ' if framed else '' }}px-4 py-8 text-center">
+    <span class="w-11 h-11 rounded-2xl bg-card border border-border flex items-center justify-center mx-auto" aria-hidden="true">
+        <span class="material-symbols-outlined text-[22px] text-muted">{{ icon }}</span>
+    </span>
+    <h3 class="font-display text-[15px] font-bold leading-tight mt-3">{{ title }}</h3>
+    <p class="caption-text text-[13px] mt-1.5 max-w-[19rem] mx-auto leading-snug">{{ body }}</p>
+    {% if cta_label and cta_href %}
+    <a href="{{ cta_href }}"
+       class="inline-flex items-center gap-1 mt-3.5 rounded-full px-4 py-2 text-[13px] font-bold
+              {{ 'bg-primary text-background btn-glow' if tone == 'primary' else 'glass hover-card font-semibold' }}">
+        {{ cta_label }}<span class="material-symbols-outlined text-[17px]" aria-hidden="true">chevron_right</span>
+    </a>
+    {% endif %}
+</div>
+{% endmacro %}
+
+
+{# A heading above a group of panels or rows. `level` because the same visual
+   weight serves a page's second-level section (h2) and a panel's own title
+   (h3) — the outline should follow the document, not the type size. `id` is for
+   the common case where the wrapping <section> names this heading as its
+   accessible label via aria-labelledby; without it that reference dangles. #}
+{% macro section_head(title, subtitle=None, level=2, id=None) %}
+<div class="mb-2.5">
+    <h{{ level }} {% if id %}id="{{ id }}" {% endif %}class="font-display text-[15px] font-bold leading-tight">{{ title }}</h{{ level }}>
+    {% if subtitle %}<p class="caption-text text-[12.5px] mt-0.5 leading-snug">{{ subtitle }}</p>{% endif %}
+</div>
+{% endmacro %}
+
+
+{# The page's own title row, for pages that render one in the content (Orders,
+   Business Hub). Mobile needs it — base.html's top bar shows the CartFlow
+   wordmark rather than a per-screen title — but it is a label, not a hero, so
+   18/20px rather than the 24/30px it used to be. `action` is a caller-supplied
+   block that sits on the same line: a page title and its one action are one row,
+   not two. #}
+{% macro page_head(title, subtitle=None) %}
+<div class="min-w-0">
+    <h1 class="font-display text-lg sm:text-xl font-black leading-tight">{{ title }}</h1>
+    {% if subtitle %}<p class="caption-text text-[12.5px] mt-0.5 leading-snug">{{ subtitle }}</p>{% endif %}
+</div>
+{% endmacro %}
+
+
+{# A capability that isn't built yet: its name, what it will do, and the table it
+   waits on. The one honest way to show a roadmap inside a working page. #}
+{% macro pending_row(icon, title, body, reason) %}
+<div class="flex items-start gap-3 py-2.5">
+    <span class="w-8 h-8 rounded-xl bg-card border border-border flex items-center justify-center shrink-0" aria-hidden="true">
+        <span class="material-symbols-outlined text-[17px] text-muted">{{ icon }}</span>
+    </span>
+    <div class="min-w-0 flex-1">
+        <p class="text-[13px] font-semibold flex items-center gap-2 flex-wrap">{{ title }} {{ soon(reason) }}</p>
+        <p class="caption-text text-[12px] mt-0.5 leading-snug">{{ body }}</p>
+    </div>
+</div>
+{% endmacro %}
+
+
+{# One place that decides how a price reads. Not a filter, because a filter that
+   only prepends a currency symbol reads worse at the call site than `money(p)`.
+
+   The formatting itself lives in Python — `catalog.naira`, registered as a Jinja
+   global — because prices are also printed by JavaScript (Home's recently-viewed
+   rail, Discover's search results) from a JSON index the same function builds.
+   Naira, thousands-separated, no kobo.
+
+   Shared rather than page-local because the Shop grid, the cart, the product
+   page and the 404's rail all print the same product's price — and a price that
+   reads `₦18,500` on one screen and `₦18500` on the next reads like a bug. #}
+{% macro money(amount) -%}
+{{ naira(amount) }}
+{%- endmacro %}

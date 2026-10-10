@@ -1,0 +1,777 @@
+{% extends "base.html" %}
+{% from "partials/avatar.html" import avatar %}
+
+{# ==========================================================================
+   DISCOVER — exploration hub + universal search (docs/product/07).
+
+   Two things to know before editing:
+
+   1. MOST CONTENT IS CURATED PLACEHOLDER DATA — products are the exception.
+      There is no Post/Event/Hashtag backend yet (no content models exist — see
+      docs/product/06), so those lists are defined here as a Jinja `{% set %}`,
+      each shaped like the API that will replace it: when the real endpoints land,
+      delete the `set`, pass the same key in from the route context, and the markup
+      does not change. Products already work that way — they come from
+      `catalog.catalog_context()` and link to their own page at /product/{slug}.
+
+   2. SEARCH RUNS CLIENT-SIDE, ON PURPOSE. Doc 07 §6 requires results that
+      update as you type, and there is no search endpoint to call. So the same
+      lists are ALSO emitted as JSON (see `extra_script`) and queried in the
+      browser. That keeps behaviour honest — nothing pretends to be a network
+      call, so there are no fake skeletons (doc 04 §22 loading states belong
+      with the real API) — and swapping in `GET /api/search` later means
+      replacing one function, `runSearch()`.
+
+   Section order follows doc 07 §4 exactly: Search → Trending searches →
+   Suggested users → Suggested businesses → Trending posts → Trending products
+   → Upcoming events. The top bar is base.html's default (CartFlow wordmark on
+   mobile), so this page does NOT override `topbar` — the search field is the
+   first thing in the page instead, sticky under the bar.
+========================================================================== #}
+
+{# Doc 07 §8 — the seeded "what campus is searching" terms. #}
+{% set trending_searches = ["#FreshersWeek", "Perfumes", "Hoodies", "BUSA Dinner", "Power Bank"] %}
+
+{# Doc 07 §7 — Users: photo, name, username, university. `pop` (0-100) is the
+   popularity signal the ranking rules in §18 use to break ties. #}
+{% set suggested_users = [
+  {"name": "Sarah Adeyemi",  "username": "sarahade",    "university": "Bells University",    "pop": 92},
+  {"name": "James Okonkwo",  "username": "jamesok",      "university": "Bells University",    "pop": 88},
+  {"name": "Zainab Bello",   "username": "zainabb",      "university": "Covenant University", "pop": 84},
+  {"name": "Chuka Eze",      "username": "chukaeze",     "university": "Babcock University",  "pop": 79},
+  {"name": "Blessing Ade",   "username": "blessingade",  "university": "Bells University",    "pop": 75},
+  {"name": "Musa Ibrahim",   "username": "musaib",       "university": "Covenant University", "pop": 70}
+] %}
+
+{# Doc 07 §7 — Businesses: logo, name, username, category, university. #}
+{% set suggested_businesses = [
+  {"name": "RetroVibe Apparel",      "username": "retrovibe",  "category": "Fashion",       "university": "Bells University",    "followers": "48.2K", "pop": 96, "following": false},
+  {"name": "SneakerLab",             "username": "sneakerlab", "category": "Footwear",      "university": "Covenant University", "followers": "32.7K", "pop": 93, "following": true},
+  {"name": "CampusTech Store",       "username": "campustech", "category": "Electronics",   "university": "Bells University",    "followers": "27.1K", "pop": 91, "following": false},
+  {"name": "FoodHub Campus Kitchen", "username": "foodhub",    "category": "Food & Drinks", "university": "Bells University",    "followers": "19.8K", "pop": 89, "following": false},
+  {"name": "Luxe Fashion",           "username": "luxe",       "category": "Fashion",       "university": "Babcock University",  "followers": "18.4K", "pop": 82, "following": false}
+] %}
+
+{# Explore grid (doc 04 §8 "Stories/posts"). Media only — a post is not a
+   searchable entity in §5, so these are NOT part of the search corpus. #}
+{% set trending_posts = [
+  {"image": "https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?q=80&w=500&auto=format&fit=crop", "alt": "Model wearing a black campus hoodie",   "author": "RetroVibe Apparel", "handle": "retrovibe",  "likes": "2,847"},
+  {"image": "https://images.unsplash.com/photo-1542291026-7eec264c27ff?q=80&w=500&auto=format&fit=crop",   "alt": "AirFlux sneaker, side view",              "author": "SneakerLab",        "handle": "sneakerlab", "likes": "4,102"},
+  {"image": "https://images.unsplash.com/photo-1604329760661-e71dc83f8f26?q=80&w=500&auto=format&fit=crop", "alt": "Plate of jollof rice with chicken",       "author": "FoodHub",           "handle": "foodhub",    "likes": "1,204"},
+  {"image": "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?q=80&w=500&auto=format&fit=crop", "alt": "Laptop on a study desk",                  "author": "CampusTech Store",  "handle": "campustech", "likes": "6,800"},
+  {"image": "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?q=80&w=500&auto=format&fit=crop", "alt": "Crowd at an outdoor campus event",        "author": "Bells Student Union","handle": "bellssu",    "likes": "918"},
+  {"image": "https://images.unsplash.com/photo-1595425970377-c9703cf48b6d?q=80&w=500&auto=format&fit=crop", "alt": "Perfume bottle on a marble surface",      "author": "Luxe Fashion",      "handle": "luxe",       "likes": "1,536"}
+] %}
+
+{# Doc 07 §7 — Products. NOT a `{% set %}` like the lists above: products are the
+   one searchable entity type that already has a real source of truth, so they
+   come from the route's catalogue context (`browse_index`, via
+   catalog.catalog_context()). That is what lets a product found here open its own
+   page at /product/{slug} and quote the price that page quotes — this template
+   used to keep six of its own, with prices typed as strings, which is exactly how
+   the same hoodie ends up costing two different amounts in one app.
+
+   Sorted by the same `pop` signal §18 ranks with; the rail shows the top six
+   while search (see `extra_script`) covers the whole catalogue. #}
+{% set trending_products = browse_index | sort(attribute="pop", reverse=true) %}
+
+{# Doc 07 §7 — Events: banner, name, organizer, date, ticket availability.
+   Ticketing itself is Milestone 2 — these are listings, not purchasable. #}
+{% set upcoming_events = [
+  {"name": "BUSA Annual Dinner",   "organizer": "Bells Student Union", "date": "Sat, Aug 29 · 6:00 PM",  "venue": "Bells University Hall",   "tickets": "42 tickets left", "banner": "https://images.unsplash.com/photo-1519671482749-fd09be7ccebf?q=80&w=800&auto=format&fit=crop", "pop": 94},
+  {"name": "Freshers' Week Bazaar","organizer": "CartFlow Events",     "date": "Mon, Sep 7 · 10:00 AM",  "venue": "Bells University Square", "tickets": "Free entry",      "banner": "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?q=80&w=800&auto=format&fit=crop", "pop": 90},
+  {"name": "Campus Tech Fair",     "organizer": "CampusTech Store",    "date": "Fri, Sep 18 · 12:00 PM", "venue": "Faculty of Engineering",  "tickets": "Selling fast",    "banner": "https://images.unsplash.com/photo-1540575467063-178a50c2df87?q=80&w=800&auto=format&fit=crop", "pop": 81}
+] %}
+
+{# Doc 07 §7 — Hashtags: hashtag + post count. `tag` has no leading '#'. #}
+{% set hashtags = [
+  {"tag": "FreshersWeek", "posts": "12.4K", "pop": 97},
+  {"tag": "CampusWear",   "posts": "8.9K",  "pop": 92},
+  {"tag": "Sneakers",     "posts": "6.7K",  "pop": 88},
+  {"tag": "CampusEats",   "posts": "5.2K",  "pop": 85},
+  {"tag": "BUSADinner",   "posts": "3.1K",  "pop": 80},
+  {"tag": "Perfumes",     "posts": "2.8K",  "pop": 74}
+] %}
+
+{% block content %}
+<div class="page">
+
+    <!-- ===================== SEARCH (doc 07 §4, first) =====================
+         Sticky directly under base.html's top bar. Full-bleed on mobile (the
+         -mx-3/px-3 pair lands the bar exactly on the viewport edges); on sm+ it
+         stays inside the reading column. -->
+    <div class="sticky top-14 sm:top-16 z-30 -mx-3 px-3 py-2.5 border-b border-border blur-bg sm:mx-0 sm:px-0 sm:border-0">
+        <div class="relative">
+            <span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-muted text-[20px] pointer-events-none" aria-hidden="true">search</span>
+            <input id="discoverSearch" type="text" value="{{ initial_query or '' }}"
+                   placeholder="Search students, shops, products, events…"
+                   aria-label="Search CartFlow" aria-controls="discoverResults"
+                   autocomplete="off" enterkeyhint="search" inputmode="search"
+                   class="w-full bg-card border border-border rounded-full pl-12 pr-12 py-3 text-sm sm:text-base outline-none focus:border-primary transition-colors">
+            <button id="discoverClear" type="button" aria-label="Clear search"
+                    class="hidden absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full flex items-center justify-center text-muted hover:text-[var(--c-text)]">
+                <span class="material-symbols-outlined text-[20px]">close</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- ===================== SEARCH RESULTS =====================
+         Filled by JS and shown only while a query is active; the explore feed
+         below is hidden in that state so the two never compete. -->
+    <div id="discoverResults" class="hidden space-y-4 sm:space-y-5 pt-4" role="region" aria-live="polite" aria-label="Search results"></div>
+
+    <!-- ===================== EXPLORE ===================== -->
+    <div id="discoverExplore" class="space-y-5 sm:space-y-6 pt-4">
+
+        <!-- recent searches (doc 07 §15) — private, per-device, removable.
+             Hidden until JS finds history in localStorage. -->
+        <section id="recentBlock" class="glass panel p-4 sm:p-5 hidden">
+            <div class="flex items-center justify-between gap-3 mb-3">
+                <h2 class="font-display text-[15px] font-bold leading-tight">🕓 Recent searches</h2>
+                <button type="button" onclick="clearRecent()" class="text-sm text-primary font-semibold">Clear all</button>
+            </div>
+            <div id="recentList" class="flex flex-wrap gap-2"></div>
+        </section>
+
+        <!-- trending searches (doc 07 §8) -->
+        <section class="glass panel p-4 sm:p-5">
+            <h2 class="font-display text-[15px] font-bold leading-tight mb-3">🔎 Trending searches</h2>
+            <div class="flex flex-wrap gap-2">
+                {% for term in trending_searches %}
+                {# tojson rather than a bare interpolation: it renders an
+                   apostrophe as a unicode escape, which survives HTML attribute
+                   decoding and stays a valid JS string literal. Written the
+                   plain way, a term like "Freshers' Week" would decode back to
+                   a real quote and end the literal early. It must sit in a
+                   SINGLE-quoted attribute — tojson does not escape `"`. #}
+                <button type="button" onclick='searchFor({{ term | tojson }})' class="glass px-4 py-2 rounded-full text-sm hover-card">{{ term }}</button>
+                {% endfor %}
+            </div>
+        </section>
+
+        <!-- suggested users (doc 07 §4) — horizontal rail, native-app feel -->
+        <section class="glass panel p-4 sm:p-5">
+            <div class="flex items-center justify-between gap-3 mb-4">
+                <h2 class="font-display text-[15px] font-bold leading-tight">👥 Suggested students</h2>
+                <span class="text-xs text-muted">Based on your campus</span>
+            </div>
+            <div class="flex gap-3 overflow-x-auto hide-scrollbar">
+                {% for u in suggested_users %}
+                <div class="shrink-0 w-36 glass rounded-2xl p-4 text-center">
+                    {{ avatar(u.name, u.username, "w-14 h-14 mx-auto", "rounded-full") }}
+                    {# A person's name wraps to two lines rather than clipping — a
+                       144px card is not wide enough for "Oluwadamilare Adebayo"
+                       on one line, and half a name is not an introduction. The
+                       @handle and university below still truncate: those are
+                       identifiers you can recognise from a fragment. #}
+                    <h3 class="font-semibold text-sm mt-3 leading-tight break-words line-clamp-2">{{ u.name }}</h3>
+                    <p class="text-xs text-muted truncate">@{{ u.username }}</p>
+                    <p class="text-[11px] text-muted truncate mt-0.5">{{ u.university }}</p>
+                    <button type="button" onclick="toggleFollow(this)" class="follow-btn mt-3 w-full bg-primary text-background text-xs font-bold rounded-full py-2">Follow</button>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <!-- suggested businesses (doc 07 §4) — list rows for scannability -->
+        <section class="glass panel p-4 sm:p-5">
+            <div class="flex items-center justify-between gap-3 mb-4">
+                <h2 class="font-display text-[15px] font-bold leading-tight">🏬 Suggested businesses</h2>
+                <a href="/marketplace" class="text-primary text-sm">Browse Shop</a>
+            </div>
+            <div class="space-y-4">
+                {% for b in suggested_businesses %}
+                <div class="flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-3 min-w-0">
+                        {{ avatar(b.name, b.username, "w-12 h-12", "rounded-2xl") }}
+                        <div class="min-w-0">
+                            {# Business names wrap rather than truncate — see the
+                               line-clamp note in base.html. "Covenant University
+                               Print Hub" clipped to "Covenant Univer…" is a shop
+                               nobody can identify. #}
+                            <h3 class="text-sm font-semibold leading-tight flex items-start gap-1">
+                                <span class="break-words min-w-0">{{ b.name }}</span>
+                                <span class="material-symbols-outlined text-primary text-[15px] shrink-0" title="Business" aria-label="Business">verified</span>
+                            </h3>
+                            <p class="text-xs text-muted truncate mt-0.5">{{ b.category }} · {{ b.university }}</p>
+                            <p class="text-xs text-muted truncate">{{ b.followers }} followers</p>
+                        </div>
+                    </div>
+                    {% if b.following %}
+                    <button type="button" onclick="toggleFollow(this)" class="follow-btn shrink-0 glass border border-border px-4 py-1.5 rounded-full text-sm">Following</button>
+                    {% else %}
+                    <button type="button" onclick="toggleFollow(this)" class="follow-btn shrink-0 bg-primary text-background font-semibold px-4 py-1.5 rounded-full text-sm">Follow</button>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <!-- trending posts (doc 04 §8) — 3-up explore grid, flush to the card -->
+        <section class="glass panel overflow-hidden">
+            <div class="flex items-center justify-between gap-3 p-4 sm:p-5 pb-3">
+                <h2 class="font-display text-[15px] font-bold leading-tight">🔥 Trending posts</h2>
+                <a href="/" class="text-primary text-sm">Open feed</a>
+            </div>
+            <div class="grid grid-cols-3 gap-[2px] bg-border">
+                {% for p in trending_posts %}
+                <button type="button" class="relative zoom-wrap block" aria-label="Preview post by {{ p.author }}"
+                        onclick='openPeek({{ {"image": p.image, "title": p.author, "sub": "@" + p.handle, "meta": p.likes ~ " likes · tap through from the feed to see the full post.", "primary": "Open the feed", "action": "feed"} | tojson }})'>
+                    <img src="{{ p.image }}" alt="{{ p.alt }}" loading="lazy" class="w-full aspect-square object-cover">
+                    <span class="on-media absolute bottom-1.5 left-2 text-xs font-semibold flex items-center gap-1">
+                        <span class="material-symbols-outlined text-[14px]">favorite</span>{{ p.likes }}
+                    </span>
+                </button>
+                {% endfor %}
+            </div>
+        </section>
+
+        <!-- trending products (doc 07 §4) — real links to /product/{slug}, not
+             previews: a 320px sheet can't hold a description, a stock line, a
+             delivery estimate and a review list, and the page that can is one tap
+             away. So the tile carries only what makes you tap it. -->
+        <section class="glass panel p-4 sm:p-5">
+            <div class="flex items-center justify-between gap-3 mb-4">
+                <h2 class="font-display text-[15px] font-bold leading-tight">🛍️ Trending products</h2>
+                <a href="/marketplace" class="text-primary text-sm">See all</a>
+            </div>
+            <div class="flex gap-3 overflow-x-auto hide-scrollbar">
+                {% for p in trending_products[:6] %}
+                <a href="/product/{{ p.slug }}"
+                   class="group shrink-0 w-40 bg-card border border-border rounded-2xl overflow-hidden hover-card"
+                   aria-label="View {{ p.name }}, {{ p.price_text }}">
+                    <img src="{{ p.image }}" alt="{{ p.name }}" loading="lazy" class="w-full h-28 object-cover">
+                    <span class="block p-3">
+                        <span class="block text-sm font-semibold truncate group-hover:text-primary transition-colors">{{ p.name }}</span>
+                        <span class="block text-xs text-muted truncate">{{ p.business }}</span>
+                        <span class="block text-primary font-bold mt-1">{{ p.price_text }}</span>
+                    </span>
+                </a>
+                {% endfor %}
+            </div>
+        </section>
+
+        <!-- upcoming events (doc 07 §4, last) -->
+        <section class="glass panel p-4 sm:p-5">
+            <div class="flex items-center justify-between gap-3 mb-4">
+                <h2 class="font-display text-[15px] font-bold leading-tight">🎟️ Upcoming events</h2>
+                <span class="text-xs text-muted">Near your campus</span>
+            </div>
+            <div class="space-y-4">
+                {% for e in upcoming_events %}
+                <button type="button" class="w-full text-left bg-card border border-border rounded-2xl overflow-hidden hover-card"
+                        aria-label="Preview event {{ e.name }}"
+                        onclick='openPeek({{ {"image": e.banner, "badge": e.tickets, "title": e.name, "sub": e.organizer ~ " · " ~ e.venue, "meta": e.date ~ " — ticketing goes live with the Events release.", "primary": "Remind me", "action": "event"} | tojson }})'>
+                    <span class="relative block">
+                        <img src="{{ e.banner }}" alt="{{ e.name }}" loading="lazy" class="w-full h-32 sm:h-40 object-cover">
+                        <span class="on-media absolute top-3 left-3 bg-black/45 backdrop-blur-md text-xs font-semibold px-3 py-1 rounded-full">{{ e.tickets }}</span>
+                    </span>
+                    <span class="block p-4">
+                        <span class="block font-semibold truncate">{{ e.name }}</span>
+                        <span class="block text-xs text-muted truncate mt-0.5">{{ e.organizer }} · {{ e.venue }}</span>
+                        <span class="flex items-center gap-1.5 text-sm text-primary font-semibold mt-2">
+                            <span class="material-symbols-outlined text-[16px]">calendar_month</span>{{ e.date }}
+                        </span>
+                    </span>
+                </button>
+                {% endfor %}
+            </div>
+        </section>
+
+        <p class="text-center text-sm text-muted py-2">That's everything trending today ✨</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_style %}
+
+/* Styles are per-page blocks, not shared, so the few classes this page borrows
+   from the home feed are re-declared here rather than imported. */
+.zoom-wrap{ overflow:hidden; }
+.zoom-wrap img{ transition:transform .5s cubic-bezier(.2,.8,.2,1); }
+.zoom-wrap:hover img{ transform:scale(1.05); }
+
+.overlay{ position:fixed; inset:0; z-index:80; background:rgba(3,8,16,.72); display:flex; align-items:center; justify-content:center; opacity:0; pointer-events:none; transition:opacity .25s ease; }
+.overlay.open{ opacity:1; pointer-events:auto; }
+.overlay .sheet{ transform:translateY(16px) scale(.98); transition:transform .3s cubic-bezier(.2,.8,.2,1); }
+.overlay.open .sheet{ transform:translateY(0) scale(1); }
+
+@keyframes floatUp{ 0%{ opacity:0; transform:translateY(10px); } 100%{ opacity:1; transform:translateY(0); } }
+.animate-floatUp{ animation:floatUp .35s ease both; }
+
+{% endblock %}
+
+{% block modals %}
+<!-- ===================== PREVIEW SHEET =====================
+     Events and posts only. Products used to preview here too and no longer do:
+     they have a real page at /product/{slug}, and a sheet that repeats a name, a
+     price and one line of prose is a worse version of it — the reason this page's
+     product tiles are plain links now.
+
+     What is left is the honest remainder. `/event/{slug}` is not a route
+     (ticketing is Milestone 2, doc 17) and a post is not addressable yet (no posts
+     table, doc 06), so there is nowhere to send a tap; a preview plus a
+     clearly-labelled client-side action is the truthful answer for both. When
+     either gets a page, its rows become links and this sheet gets smaller again. -->
+<div id="peekOverlay" class="overlay">
+    <div class="sheet glass panel w-full max-w-sm mx-4 overflow-hidden shadow-card">
+        <div class="relative">
+            <img id="peekImage" src="" alt="" class="w-full h-44 object-cover">
+            <span id="peekBadge" class="on-media absolute top-3 left-3 bg-black/45 backdrop-blur-md text-xs font-semibold px-3 py-1 rounded-full hidden"></span>
+            <button type="button" onclick="closePeek()" aria-label="Close preview"
+                    class="on-media absolute top-3 right-3 w-9 h-9 rounded-full bg-black/45 backdrop-blur-md flex items-center justify-center">
+                <span class="material-symbols-outlined text-[20px]">close</span>
+            </button>
+        </div>
+        <div class="p-5">
+            <h3 id="peekTitle" class="font-display text-lg font-bold leading-snug"></h3>
+            <p id="peekSub" class="text-sm text-muted mt-0.5"></p>
+            <p id="peekMeta" class="caption-text text-sm mt-3 leading-relaxed"></p>
+            <div class="flex gap-3 mt-5">
+                <button id="peekPrimary" type="button" onclick="peekAction()" class="flex-1 bg-primary text-background font-bold rounded-2xl py-3.5 btn-glow"></button>
+                <button type="button" onclick="closePeek()" class="glass rounded-2xl py-3.5 px-5 hover-card">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+/* ==========================================================================
+   UNIVERSAL SEARCH — client-side (see the note at the top of this template).
+
+   The searchable entity types are exactly the five in doc 07 §5: students,
+   businesses, products, events, hashtags. Trending posts are deliberately not
+   searchable — §5 doesn't list posts, and matching them would need caption
+   indexing that belongs server-side.
+
+   To swap in a real API later: replace runSearch()'s body with a fetch to
+   GET /api/search?q=… that returns the same {kind, …} shape. Everything else
+   (rendering, history, empty states) still holds.
+========================================================================== */
+const USERS      = {{ suggested_users | tojson }};
+const BUSINESSES = {{ suggested_businesses | tojson }};
+/* The whole catalogue, not the six on the rail: search should find any product
+   the Shop sells. `price_text` arrives pre-formatted by catalog.naira so this
+   file never decides how a naira figure reads. */
+const PRODUCTS   = {{ browse_index | tojson }};
+const EVENTS     = {{ upcoming_events | tojson }};
+const HASHTAGS   = {{ hashtags | tojson }};
+
+/* ---- avatars, mirroring the server ----------------------------------------
+   Results are rendered in the browser, so the Jinja avatar() macro can't run.
+   This reproduces partials/avatar.html: a photo when the row carries one,
+   otherwise the default profile picture — base.html's #cf-avatar silhouette,
+   cloned rather than redrawn, so an account looks identical whether its card
+   came from the server or from a search result.
+
+   Nothing in today's corpus has a photo: the rows below are curated Jinja
+   fixtures with no `users` row behind them, so `avatar` is always undefined and
+   every result draws the silhouette. The parameter is threaded through anyway
+   because the day search comes from an API, `avatar_url` is already the field
+   PublicUserOut returns. */
+function avatarHTML(name, seed, sizeClass, radiusClass, src){
+    const box = `${sizeClass} ${radiusClass} shrink-0`;
+    if (src) {
+        return `<img src="${esc(src)}" alt="" loading="lazy" decoding="async"
+                     class="${box} object-cover bg-card" aria-hidden="true">`;
+    }
+    /* Same silhouette the avatar() macro draws — base.html's #cf-avatar symbol,
+       not a copy of it, so an account with no photo looks identical whether the
+       server rendered the row or this function did. */
+    return `<svg class="${box} overflow-hidden" aria-hidden="true" focusable="false"><use href="#cf-avatar"/></svg>`;
+}
+
+/* Every value below is server-curated, but results are built with innerHTML,
+   so escape anyway — the day this corpus comes from user-submitted shop names,
+   this is the line that stops it being an XSS hole. */
+const ESCAPES = { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' };
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ESCAPES[c]); }
+
+/* ---- corpus ---- */
+const CORPUS = [
+    ...USERS.map(u => ({
+        kind:'user', title:u.name, username:u.username, sub:'@' + u.username + ' · ' + u.university,
+        avatar:u.avatar_url, pop:u.pop, hay:[u.name, u.username, u.university]
+    })),
+    ...BUSINESSES.map(b => ({
+        kind:'business', title:b.name, username:b.username, sub:b.category + ' · ' + b.university,
+        extra:b.followers + ' followers', following:b.following, avatar:b.avatar_url, pop:b.pop,
+        hay:[b.name, b.username, b.category, b.university]
+    })),
+    ...PRODUCTS.map(p => ({
+        kind:'product', title:p.name, sub:p.business, price:p.price_text, slug:p.slug,
+        image:p.image, pop:p.pop, hay:[p.name, p.business, p.category]
+    })),
+    ...EVENTS.map(e => ({
+        kind:'event', title:e.name, sub:e.organizer + ' · ' + e.date, badge:e.tickets, image:e.banner,
+        date:e.date, venue:e.venue, pop:e.pop, hay:[e.name, e.organizer, e.venue]
+    })),
+    ...HASHTAGS.map(h => ({
+        kind:'hashtag', title:'#' + h.tag, tag:h.tag, sub:h.posts + ' posts', pop:h.pop, hay:[h.tag]
+    })),
+];
+
+/* ---- ranking (doc 07 §18: exact > prefix > popularity > partial) ----------
+   Tiers sit 200 apart and the popularity bonus caps at 50, so popularity only
+   ever reorders items WITHIN a tier — a partial match can never outrank a
+   prefix match just by being popular. */
+function scoreItem(item, q, mode){
+    if (mode === 'handle' && item.kind !== 'user' && item.kind !== 'business') return 0;
+    let best = 0;
+    for (const raw of item.hay){
+        if (!raw) continue;
+        const f = String(raw).toLowerCase();
+        if (f === q) best = Math.max(best, 1000);
+        else if (f.startsWith(q)) best = Math.max(best, 600);
+        else if (f.split(/\s+/).some(w => w.startsWith(q))) best = Math.max(best, 400);
+        else if (f.includes(q)) best = Math.max(best, 200);
+    }
+    if (!best) return 0;
+    /* A #tag query asks about the tag first, but still surfaces the shops and
+       products matching that word — otherwise tapping #CampusWear in a caption
+       lands on one lonely row. */
+    if (mode === 'tag' && item.kind === 'hashtag') best += 300;
+    return best + (item.pop || 0) * 0.5;
+}
+
+const GROUPS = [
+    { kind:'user',     label:'People'     },
+    { kind:'business', label:'Businesses' },
+    { kind:'product',  label:'Products'   },
+    { kind:'event',    label:'Events'     },
+    { kind:'hashtag',  label:'Hashtags'   },
+];
+
+const elSearch  = document.getElementById('discoverSearch');
+const elClear   = document.getElementById('discoverClear');
+const elResults = document.getElementById('discoverResults');
+const elExplore = document.getElementById('discoverExplore');
+
+function runSearch(rawQuery){
+    const raw = String(rawQuery || '').trim();
+    if (!raw){ showExplore(); return; }
+
+    /* '@sarahade' means "find the account"; '#CampusWear' means "the tag". */
+    let mode = 'text', q = raw.toLowerCase();
+    if (q.startsWith('@')){ mode = 'handle'; q = q.slice(1); }
+    else if (q.startsWith('#')){ mode = 'tag'; q = q.slice(1); }
+    if (!q){ showExplore(); return; }
+
+    const hits = CORPUS
+        .map(item => ({ item, score: scoreItem(item, q, mode) }))
+        .filter(h => h.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .map(h => h.item);
+
+    renderResults(raw, hits);
+}
+
+function renderResults(query, hits){
+    elExplore.classList.add('hidden');
+    elResults.classList.remove('hidden');
+    elClear.classList.remove('hidden');
+
+    if (!hits.length){ renderNoResults(query); return; }
+
+    /* No caps — the corpus is small enough to show in full, so nothing is
+       silently dropped from a result set. */
+    let html = `<p class="text-sm text-muted px-1">${hits.length} result${hits.length === 1 ? '' : 's'} for &ldquo;${esc(query)}&rdquo;</p>`;
+    for (const g of GROUPS){
+        const rows = hits.filter(h => h.kind === g.kind);
+        if (!rows.length) continue;
+        html += `
+            <section class="glass panel p-4 sm:p-5 animate-floatUp">
+                <div class="flex items-center justify-between gap-3 mb-4">
+                    <h2 class="font-display text-[15px] font-bold leading-tight">${g.label}</h2>
+                    <span class="text-xs text-muted">${rows.length}</span>
+                </div>
+                <div class="space-y-3.5">${rows.map(rowHTML).join('')}</div>
+            </section>`;
+    }
+    elResults.innerHTML = html;
+    window.cfParseEmoji && window.cfParseEmoji(elResults);
+}
+
+function renderNoResults(query){
+    /* Doc 07 §17 — say what to try next instead of dead-ending. Same scale as
+       the server-rendered empty states in partials/ui.html (44px tile, 15px
+       title, 13px body): a client-rendered block should not be a different
+       size to the one three lines above it. */
+    elResults.innerHTML = `
+        <div class="glass panel border border-dashed border-border px-4 py-8 text-center animate-floatUp">
+            <span class="w-11 h-11 rounded-2xl bg-card border border-border flex items-center justify-center mx-auto" aria-hidden="true">
+                <span class="material-symbols-outlined text-[22px] text-muted">search_off</span>
+            </span>
+            <h2 class="font-display text-[15px] font-bold leading-tight mt-3">No results for &ldquo;${esc(query)}&rdquo;</h2>
+            <p class="caption-text text-[13px] mt-1.5 max-w-[19rem] mx-auto leading-snug">
+                Check the spelling, try a shorter keyword, or browse what's trending
+                on campus right now.
+            </p>
+            <button type="button" onclick="clearSearch()"
+                    class="inline-flex items-center gap-1 mt-3.5 bg-primary text-background font-bold rounded-full px-4 py-2 text-[13px] btn-glow">Browse trending</button>
+        </div>`;
+}
+
+function rowHTML(it){
+    if (it.kind === 'user' || it.kind === 'business'){
+        const verified = it.kind === 'business'
+            ? '<span class="material-symbols-outlined text-primary text-[15px]" title="Business" aria-label="Business">verified</span>' : '';
+        const following = it.following === true;
+        const followClass = following ? 'glass border border-border' : 'bg-primary text-background font-semibold';
+        /* Row and Follow are SIBLING buttons, never nested — nesting is invalid
+           HTML and breaks keyboard activation. */
+        return `
+            <div class="flex items-center justify-between gap-3">
+                <button type="button" class="flex items-center gap-3 min-w-0 text-left" data-act="profile" data-name="${esc(it.title)}">
+                    ${avatarHTML(it.title, it.username, 'w-12 h-12', it.kind === 'business' ? 'rounded-2xl' : 'rounded-full', it.avatar)}
+                    <span class="min-w-0">
+                        <span class="flex items-center gap-1"><span class="font-semibold truncate">${esc(it.title)}</span>${verified}</span>
+                        <span class="block text-xs text-muted truncate">${esc(it.sub)}</span>
+                        ${it.extra ? `<span class="block text-xs text-muted truncate">${esc(it.extra)}</span>` : ''}
+                    </span>
+                </button>
+                <button type="button" data-act="follow" class="follow-btn shrink-0 ${followClass} px-4 py-1.5 rounded-full text-sm">${following ? 'Following' : 'Follow'}</button>
+            </div>`;
+    }
+
+    if (it.kind === 'hashtag'){
+        return `
+            <button type="button" class="w-full flex items-center gap-3 text-left" data-act="search" data-term="${esc(it.title)}">
+                <span class="w-12 h-12 rounded-2xl glass border border-border flex items-center justify-center shrink-0 font-bold text-primary text-lg">#</span>
+                <span class="min-w-0">
+                    <span class="block font-semibold truncate">${esc(it.title)}</span>
+                    <span class="block text-xs text-muted truncate">${esc(it.sub)}</span>
+                </span>
+                <span class="material-symbols-outlined text-muted ml-auto shrink-0">chevron_right</span>
+            </button>`;
+    }
+
+    /* A product result is a LINK to its own page — the row's job is to be
+       recognised and tapped, and everything a shopper then wants (description,
+       stock, delivery, reviews) lives at /product/{slug}. encodeURIComponent
+       rather than esc(): this is a URL path segment, and its output contains no
+       character an HTML attribute can be broken out of. */
+    if (it.kind === 'product'){
+        return `
+            <a href="/product/${encodeURIComponent(it.slug)}" class="group w-full flex items-center gap-3 text-left"
+               aria-label="View ${esc(it.title)}, ${esc(it.price)}">
+                <img src="${esc(it.image)}" alt="" loading="lazy" class="w-12 h-12 rounded-2xl object-cover shrink-0">
+                <span class="min-w-0 flex-1">
+                    <span class="block font-semibold truncate group-hover:text-primary transition-colors">${esc(it.title)}</span>
+                    <span class="block text-xs text-muted truncate">${esc(it.sub)}</span>
+                </span>
+                <span class="text-primary font-bold shrink-0">${esc(it.price)}</span>
+            </a>`;
+    }
+
+    /* event — the one kind still previewing in a sheet, because /event/{slug}
+       isn't a route (ticketing is Milestone 2) and there is no page to link to. */
+    const peek = { image:it.image, badge:it.badge, title:it.title, sub:it.sub,
+                   meta:it.date + ' — ticketing goes live with the Events release.',
+                   primary:'Remind me', action:'event' };
+    return `
+        <button type="button" class="w-full flex items-center gap-3 text-left" data-act="peek" data-peek="${esc(JSON.stringify(peek))}">
+            <img src="${esc(it.image)}" alt="" loading="lazy" class="w-12 h-12 rounded-2xl object-cover shrink-0">
+            <span class="min-w-0 flex-1">
+                <span class="block font-semibold truncate">${esc(it.title)}</span>
+                <span class="block text-xs text-muted truncate">${esc(it.sub)}</span>
+            </span>
+            <span class="text-xs text-accent font-semibold shrink-0">${esc(it.badge)}</span>
+        </button>`;
+}
+
+/* Result rows carry their payload in data-* attributes and are handled by this
+   ONE delegated listener, rather than each row building an inline
+   onclick="fn('…')". That is deliberate: an interpolated value would be parsed
+   as JavaScript, and esc() writes `&#39;` for an apostrophe — which the HTML
+   parser turns back into a real `'` before the JS is compiled. So a name like
+   "Freshers' Week" would be a syntax error, and once the corpus contains
+   anything user-supplied it would be an injection hole. Data attributes are
+   read as strings and never compiled, which closes both. */
+elResults.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-act]');
+    if (!btn || !elResults.contains(btn)) return;
+    const act = btn.dataset.act;
+    if (act === 'profile')      profileSoon(btn.dataset.name);
+    else if (act === 'search')  searchFor(btn.dataset.term);
+    else if (act === 'follow')  toggleFollow(btn);
+    else if (act === 'peek'){
+        try { openPeek(JSON.parse(btn.dataset.peek)); } catch (err) {}
+    }
+});
+
+function showExplore(){
+    elResults.classList.add('hidden');
+    elResults.innerHTML = '';
+    elExplore.classList.remove('hidden');
+    elClear.classList.toggle('hidden', !elSearch.value);
+}
+
+/* ---- input wiring ---- */
+let searchTimer;
+elSearch.addEventListener('input', () => {
+    elClear.classList.toggle('hidden', !elSearch.value);
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => { runSearch(elSearch.value); syncUrl(elSearch.value); }, 140);
+});
+elSearch.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter'){
+        e.preventDefault();
+        clearTimeout(searchTimer);
+        const q = elSearch.value.trim();
+        runSearch(q); syncUrl(q); rememberSearch(q);
+        elSearch.blur();            /* drop the mobile keyboard so results show */
+    } else if (e.key === 'Escape'){ clearSearch(); }
+});
+elClear.addEventListener('click', clearSearch);
+
+function clearSearch(){
+    elSearch.value = '';
+    showExplore();
+    syncUrl('');
+    elSearch.focus();
+}
+
+/* Called by the trending chips and hashtag rows. */
+function searchFor(term){
+    elSearch.value = term;
+    elClear.classList.remove('hidden');
+    runSearch(term);
+    syncUrl(term);
+    rememberSearch(term);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/* Keep the address bar in step so a reload or a shared link reopens the same
+   search — the route reads ?q= and prefills the field server-side. replaceState
+   (not pushState) so typing doesn't bury the back button. */
+function syncUrl(q){
+    history.replaceState(null, '', q ? '/discover?q=' + encodeURIComponent(q) : '/discover');
+}
+
+/* ---- recent searches (doc 07 §15) ----------------------------------------
+   Local to this device and never sent anywhere: there is no search-history
+   endpoint, and history is private by definition. Individually removable plus
+   clear-all, per the spec. */
+const RECENT_KEY = 'cartflow-recent-searches';
+const RECENT_MAX = 8;
+
+function readRecent(){
+    try {
+        const v = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+        return Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, RECENT_MAX) : [];
+    } catch (e) { return []; }      /* corrupt or blocked storage must not break search */
+}
+function writeRecent(list){
+    try { localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, RECENT_MAX))); } catch (e) {}
+    renderRecent();
+}
+function rememberSearch(term){
+    const t = String(term || '').trim();
+    if (!t) return;
+    const list = readRecent().filter(x => x.toLowerCase() !== t.toLowerCase());
+    list.unshift(t);
+    writeRecent(list);
+}
+function removeRecent(term){ writeRecent(readRecent().filter(x => x !== term)); }
+function clearRecent(){ writeRecent([]); showToast('Search history cleared'); }
+
+function renderRecent(){
+    const list  = readRecent();
+    const block = document.getElementById('recentBlock');
+    const wrap  = document.getElementById('recentList');
+    block.classList.toggle('hidden', list.length === 0);
+
+    /* Built with DOM calls, not an innerHTML string: these terms are whatever
+       the user typed into the search box, and the moment such a value is
+       interpolated into markup (or worse, into an inline handler) it stops
+       being data. textContent + addEventListener keeps it data. */
+    wrap.textContent = '';
+    for (const term of list){
+        const chip = document.createElement('span');
+        chip.className = 'glass rounded-full flex items-center pl-4 pr-1 py-1 text-sm';
+
+        const open = document.createElement('button');
+        open.type = 'button';
+        open.className = 'py-1 max-w-[12rem] truncate';
+        open.textContent = term;
+        open.addEventListener('click', () => searchFor(term));
+
+        const drop = document.createElement('button');
+        drop.type = 'button';
+        drop.className = 'w-7 h-7 rounded-full flex items-center justify-center text-muted hover:text-[var(--c-text)]';
+        drop.setAttribute('aria-label', 'Remove ' + term + ' from recent searches');
+        drop.innerHTML = '<span class="material-symbols-outlined text-[16px]">close</span>';
+        drop.addEventListener('click', () => removeRecent(term));
+
+        chip.append(open, drop);
+        wrap.appendChild(chip);
+    }
+    window.cfParseEmoji && window.cfParseEmoji(wrap);
+}
+
+/* ---- preview sheet (events + posts; see the note on the markup) ---- */
+let peekState = null;
+function openPeek(data){
+    peekState = data || {};
+    const img = document.getElementById('peekImage');
+    img.src = peekState.image || '';
+    img.alt = peekState.title || '';
+    document.getElementById('peekTitle').textContent = peekState.title || '';
+    document.getElementById('peekSub').textContent   = peekState.sub || '';
+    document.getElementById('peekMeta').textContent  = peekState.meta || '';
+    const badge = document.getElementById('peekBadge');
+    badge.textContent = peekState.badge || '';
+    badge.classList.toggle('hidden', !peekState.badge);
+    document.getElementById('peekPrimary').textContent = peekState.primary || 'OK';
+    document.getElementById('peekOverlay').classList.add('open');
+}
+function closePeek(){ document.getElementById('peekOverlay').classList.remove('open'); }
+function peekAction(){
+    const kind  = peekState && peekState.action;
+    const title = (peekState && peekState.title) || 'This';
+    closePeek();
+    if (kind === 'event')     showToast("We'll remind you before " + title);
+    else if (kind === 'feed') location.href = '/';
+    else                      showToast('Saved');
+}
+
+/* ---- follow + profile stubs ---- */
+function toggleFollow(btn){
+    if (btn.textContent.trim() === 'Following'){
+        btn.textContent = 'Follow';
+        btn.classList.remove('glass', 'border', 'border-border');
+        btn.classList.add('bg-primary', 'text-background', 'font-semibold');
+    } else {
+        btn.textContent = 'Following';
+        btn.classList.remove('bg-primary', 'text-background', 'font-semibold');
+        btn.classList.add('glass', 'border', 'border-border');
+    }
+}
+/* /@username IS a route now (app/routers/pages.py), but every identity on this
+   page is curated sample data with NO row in `users` — so linking these handles
+   would send every tap to the 404 page. They become real links in the slice that
+   gives Discover a real backend; until then, say what they are. */
+function profileSoon(name){ showToast(name + ' is sample data — real profiles arrive with search'); }
+
+/* tap the scrim to dismiss */
+document.querySelectorAll('.overlay').forEach(o => {
+    o.addEventListener('click', (e) => { if (e.target === o) o.classList.remove('open'); });
+});
+
+/* ---- boot ----
+   The route prefills the field from ?q= / ?tag=, so run that query immediately:
+   arriving from a #hashtag or @mention in the feed should land on results, not
+   on an explore page with a filled-in box. */
+renderRecent();
+if (elSearch.value.trim()){
+    runSearch(elSearch.value);
+    rememberSearch(elSearch.value.trim());
+} else {
+    showExplore();
+}
+window.cfParseEmoji && window.cfParseEmoji(document.body);
+</script>
+{% endblock %}

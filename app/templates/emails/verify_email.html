@@ -1,0 +1,46 @@
+{% extends "emails/_layout.html" %}
+
+{% block subject %}Verify your CartFlow email{% endblock %}
+{% block preheader %}Confirm your email address to finish setting up your CartFlow account.{% endblock %}
+{% block heading %}Verify your email{% endblock %}
+
+{% block body_content %}
+<p style="margin:0 0 14px;">Hi {{ display_name }},</p>
+
+<p style="margin:0 0 24px;">
+  Confirm this email address to finish setting up your CartFlow account.
+  This link expires in {{ expires_hours }} hours.
+</p>
+
+{# Bulletproof-ish button: a padded anchor, since <button> is inert in email
+   and Outlook ignores border-radius (it degrades to a square, which is fine).
+   The app's primary colour with DARK text on it, matching `bg-primary
+   text-background` in the UI. bgcolor= is on the <td> too because Outlook
+   ignores background-color there. #}
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;">
+  <tr>
+    <td align="center" bgcolor="#7CC6FF" style="border-radius:12px;">
+      <a href="{{ verify_url }}"
+         style="display:inline-block; padding:14px 30px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;
+                font-size:15px; font-weight:700; color:#07111F; text-decoration:none; border-radius:12px;">
+        Verify email
+      </a>
+    </td>
+  </tr>
+</table>
+
+{# Clients that strip or mangle the anchor still need a usable URL, and
+   some corporate scanners rewrite links — the plain text is the fallback. #}
+<p style="margin:0 0 8px; font-size:13px; color:#8FA0B8;">
+  Or paste this link into your browser:
+</p>
+<p style="margin:0 0 24px; font-size:13px; word-break:break-all;">
+  <a href="{{ verify_url }}" style="color:#7CC6FF;">{{ verify_url }}</a>
+</p>
+
+<hr style="border:0; border-top:1px solid #22364F; margin:24px 0;">
+
+<p style="margin:0; font-size:13px; color:#8FA0B8;">
+  If you didn't create a CartFlow account, you can safely ignore this email.
+</p>
+{% endblock %}

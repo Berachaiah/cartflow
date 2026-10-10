@@ -1,0 +1,38 @@
+# --- Web framework ----------------------------------------------------
+fastapi>=0.111
+uvicorn[standard]>=0.30
+jinja2>=3.1
+python-multipart>=0.0.9
+itsdangerous>=2.2          # required by Starlette SessionMiddleware (cookie sessions)
+
+# --- Config & validation ------------------------------------------------
+pydantic>=2.7
+pydantic-settings>=2.2
+python-dotenv>=1.0
+
+# --- Database -------------------------------------------------------
+sqlalchemy>=2.0,<3.0
+alembic>=1.13
+asyncpg>=0.29               # async PostgreSQL driver
+greenlet>=3.0                # required by SQLAlchemy async
+
+# --- Auth / security --------------------------------------------------
+argon2-cffi>=23.1            # password hashing (Argon2id, per PRD Ch.12 sec 7)
+
+# --- Background jobs (added when the jobs/ module is built out) -------
+# celery>=5.4
+# redis>=5.0
+
+# --- Integrations (added alongside each integration module) -----------
+# cloudinary>=1.40
+# resend>=0.8
+
+# --- Testing ------------------------------------------------------------
+pytest>=8.0
+pytest-asyncio>=0.23
+httpx>=0.27
+aiosqlite>=0.19             # async SQLite driver for the test suite (tests/conftest.py)
+aiomysql>=0.2.0  # swap-in async driver if DATABASE_URL later points at MySQL
+pydantic[email]
+resend
+aiosmtplib

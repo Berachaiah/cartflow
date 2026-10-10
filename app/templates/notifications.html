@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+
+{# ==========================================================================
+   ACTIVITY — the inbox behind the bell (docs/product/11-activity-and-notifications.md).
+
+   ONE CATEGORY IS REAL. Doc 11 §4 names six — Social, Shop, Orders, Events,
+   Business, System — and the doc's own implementation note explains why only one
+   can exist today: there is no `notifications` table, and nearly every event one
+   would carry (a like, a comment, a mention, an order status change, an escrow
+   release, a ticket sale) needs its own table first. Follows are the exception:
+   `user_follows` is real, so "X started following you" is a genuine notification
+   and it is the only row this page renders.
+
+   THE THING THIS PAGE MUST NOT DO is fill the gap with plausible rows. A
+   notification is a claim that something happened — "Royal Fragrance liked your
+   post" asserts a post, a business and an interaction, none of which exist — and
+   unlike a fake product tile, tapping it can only lead nowhere. So the five
+   unbuilt categories are listed as what they are: named, explained, and marked
+   with what each waits on.
+
+   NO UNREAD DOTS. Doc §12 wants read/unread and §13 wants mark-all-read; both
+   are server state with nowhere to live. A localStorage flag would say "read" on
+   a phone and "unread" on a laptop for the same event, and a badge counting
+   followers would light up again every time it was cleared. Saying so is better
+   than a dot that lies.
+
+   ARRANGEMENT. One `.row-link`-height row per follow: avatar, the sentence, the
+   age, and the Follow-back control — all on one line, because the control is the
+   reason to be here and a stacked card would push it below the fold. The age
+   goes inside the text block rather than in its own column so the button can sit
+   flush right at any width; its `title` carries the exact instant, since "2w" is
+   honest but imprecise.
+
+   Context: `current_user`, `follow_rows` (FollowRow: .user, .is_following,
+   .followed_at), `follow_total`, `shown`, `next_show`, `has_more`.
+   Signed out never reaches here — the route redirects to /login?next=.
+========================================================================== #}
+
+{# --- doc §4's other five categories, plus the store itself. `body` says what
+   the category will carry; `reason` names the table it waits on, which is the
+   only thing that makes a "Soon" chip honest rather than decorative. --- #}
+{% set pending = [
+    {"icon": "favorite", "title": "Likes, comments and mentions",
+     "body": "When someone likes your post, replies to your comment, or @mentions you, it lands here and opens the post.",
+     "reason": "no posts, likes or comments tables yet — doc 06 §30"},
+    {"icon": "storefront", "title": "Shop activity",
+     "body": "A product you saved dropping in price, a business you follow listing something new, or an item back in stock.",
+     "reason": "no products or saved-items tables yet — doc 12 §28"},
+    {"icon": "receipt_long", "title": "Order updates",
+     "body": "Every stage of a purchase — confirmed, ready, delivered — plus escrow release and refund progress.",
+     "reason": "no orders or payments tables yet — doc 14 §25"},
+    {"icon": "confirmation_number", "title": "Events and tickets",
+     "body": "Ticket confirmations, reminders before an event starts, and changes to one you are attending.",
+     "reason": "no events or tickets tables yet — doc 17 §26"},
+    {"icon": "insights", "title": "Business alerts",
+     "body": "New orders, low stock, payout status and review notifications for the shop you own.",
+     "reason": "no orders, inventory or payouts tables yet — doc 16 §30"},
+    {"icon": "mark_email_read", "title": "Read state, push and email",
+     "body": "Marking one or all as read, clearing what you have read, and the same alerts arriving by push or email.",
+     "reason": "no notifications table to store read state — doc 11 §24"}
+] %}
+
+{% from "partials/ui.html" import empty_state as empty, section_head, page_head, pending_row %}
+{% from "partials/avatar.html" import avatar %}
+
+
+{% block content %}
+<div class="page space-y-4">
+
+    <!-- ===================== PAGE HEAD =====================
+         Title and its one action on the same line, same as /orders. The count is
+         real — it is the follow total, not an invented badge. -->
+    <div class="flex items-start justify-between gap-3">
+        {{ page_head("Activity",
+                     "Who followed you, newest first."
+                     if follow_total else
+                     "Follows, likes and order updates will show up here.") }}
+        <a href="/@{{ current_user.username }}"
+           class="shrink-0 glass border border-border rounded-full px-3 py-1.5 text-[12.5px] font-semibold flex items-center gap-1.5 hover-card">
+            <span class="material-symbols-outlined text-[16px] text-primary" aria-hidden="true">group</span>
+            {{ follow_total }} follower{{ '' if follow_total == 1 else 's' }}
+        </a>
+    </div>
+
+    <!-- ===================== NEW FOLLOWERS (doc §5) =====================
+         The only real notification in the app. Anchored so "Show more" returns
+         you to the list rather than the top of the page. -->
+    <section id="activity" aria-labelledby="actFollowHead" class="scroll-mt-20">
+        {{ section_head("Follows", id="actFollowHead") }}
+
+        {% if follow_rows %}
+        <ul class="glass panel divide-y divide-border overflow-hidden">
+            {% for row in follow_rows %}
+            <li class="flex items-center gap-3 px-3 py-2.5">
+                {# The avatar and the sentence are ONE link to the profile: the
+                   whole point of the row is "go look at who this is". The
+                   Follow-back button sits outside it so a tap on the control
+                   never navigates. #}
+                <a href="/@{{ row.user.username }}" class="flex items-center gap-3 min-w-0 flex-1 group">
+                    {{ avatar(row.user.display_name, row.user.username, "w-10 h-10", "rounded-xl", "", "text-sm", src=avatar_src(row.user, "sm")) }}
+                    <span class="min-w-0">
+                        {# Handle first: it is the only unique name, so it is what
+                           identifies the person. Same order as the profile header
+                           and the follower lists. #}
+                        <span class="block text-[13.5px] leading-snug truncate">
+                            <span class="font-semibold group-hover:underline">@{{ row.user.username }}</span>
+                            {% if row.user.is_seller %}<span class="material-symbols-outlined text-[14px] text-primary align-middle" title="Seller">storefront</span>{% endif %}
+                            <span class="text-muted">started following you</span>
+                        </span>
+                        <span class="block text-[11.5px] text-muted truncate mt-0.5">
+                            <time datetime="{{ row.followed_at }}" title="{{ absolute_time(row.followed_at) }}">{{ time_ago(row.followed_at) }}</time>
+                            · {{ row.user.display_name }}{% if row.user.organization %} · {{ row.user.organization.short_name or row.user.organization.official_name }}{% endif %}
+                        </span>
+                    </span>
+                </a>
+
+                {# Follow back. Real: POST/DELETE /api/users/{username}/follow both
+                   exist and are idempotent, so a double-tap is safe. `data-following`
+                   is seeded from the server so a reload keeps the state. #}
+                <button type="button" data-follow-toggle data-handle="{{ row.user.username }}"
+                        data-following="{{ 'true' if row.is_following else 'false' }}"
+                        class="act-follow shrink-0 rounded-full px-3 py-1.5 text-[12px] font-bold flex items-center gap-1
+                               {{ 'glass border border-border font-semibold' if row.is_following else 'bg-primary text-background' }}">
+                    <span class="material-symbols-outlined text-[15px]" aria-hidden="true">{{ 'check' if row.is_following else 'person_add' }}</span>
+                    <span data-follow-label>{{ 'Following' if row.is_following else 'Follow back' }}</span>
+                </button>
+            </li>
+            {% endfor %}
+        </ul>
+
+        {% if has_more %}
+        {# Grows the window rather than replacing it — a plain link, so it works
+           with JavaScript off, and the anchor lands you back on the list. #}
+        <a href="/notifications?show={{ next_show }}#activity"
+           class="w-full mt-2.5 glass border border-border rounded-2xl px-3.5 py-2.5 text-[13px] font-semibold flex items-center justify-center gap-1.5 hover-card">
+            Show more
+            <span class="text-muted font-normal">({{ shown }} of {{ follow_total }})</span>
+        </a>
+        {% elif follow_total > shown %}
+        {# Hit the 200-row ceiling. Say so instead of silently stopping, and point
+           at the profile's own follower list, which pages properly. #}
+        <p class="caption-text text-[12px] mt-2.5 text-center leading-snug">
+            Showing the {{ shown }} most recent. Your full list of {{ follow_total }} followers
+            is on <a href="/@{{ current_user.username }}" class="text-primary font-semibold hover:underline">your profile</a>.
+        </p>
+        {% endif %}
+
+        {% else %}
+        {{ empty("group_add", "No followers yet",
+                 "When someone follows you it shows up here, with a button to follow them back.
+                  Sharing your profile is the fastest way to get the first one.",
+                 "See your profile", "/@" ~ current_user.username, "quiet") }}
+        {% endif %}
+    </section>
+
+    <!-- ===================== NOT LIVE YET (doc §4) =====================
+         The five other categories, named rather than faked. One panel, one row
+         each — the whole roadmap in the height a single fake notification card
+         would have cost. -->
+    <section aria-labelledby="actPendingHead">
+        {{ section_head("Coming to this inbox",
+                        "Everything below is specified and unbuilt. Each row names what it is
+                         waiting on, so nothing here reads as a feature you have missed.",
+                        id="actPendingHead") }}
+        <div class="glass panel px-3.5 py-1.5 divide-y divide-border">
+            {% for p in pending %}
+            {{ pending_row(p.icon, p.title, p.body, p.reason) }}
+            {% endfor %}
+        </div>
+    </section>
+
+    <!-- A working route, not a promise: notification preferences (doc §17) are
+         part of Settings, and the toggles that exist there are real. -->
+    <a href="/settings" class="glass panel row-link">
+        <span class="row-icon" aria-hidden="true">
+            <span class="material-symbols-outlined text-[19px] text-muted">tune</span>
+        </span>
+        <span class="min-w-0 flex-1">
+            <span class="block text-[13.5px] font-semibold">Notification settings</span>
+            <span class="block text-[11.5px] text-muted truncate">Choose what CartFlow emails you about</span>
+        </span>
+        <span class="material-symbols-outlined text-[20px] text-muted shrink-0" aria-hidden="true">chevron_right</span>
+    </a>
+
+</div>
+{% endblock %}
+
+
+{% block extra_style %}
+
+/* The Follow-back control. Its two states are set as Tailwind classes in the
+   markup and swapped by the script, so this only carries the transition and the
+   pressed/disabled feedback that classes can't express. */
+.act-follow{ transition:background-color .2s ease, border-color .2s ease, opacity .2s ease; min-height:30px; }
+.act-follow:active{ transform:scale(.97); }
+.act-follow[disabled]{ opacity:.55; pointer-events:none; }
+
+/* Rows are 56px including padding: above the 44px touch target, and eight of
+   them still fit on a phone screen — which is the difference between an inbox
+   you scan and one you scroll. */
+
+{% endblock %}
+
+
+{% block extra_script %}
+{# base.html renders this block bare, so the <script> tag belongs here. #}
+<script>
+
+/* ===================== ACTIVITY =====================
+   The page is fully server-rendered; the only interactive thing on it is the
+   Follow-back button, and it talks to endpoints that genuinely exist
+   (app/routers/users.py). Both are idempotent, so a double-tap or a retry on a
+   flaky connection ends in the state the user asked for rather than a 409.
+
+   postJSON / delJSON / errorMessage come from static/js/cartflow-forms.js, which
+   base.html loads for every page — the same helpers the profile's Follow button
+   uses. Going through them rather than a hand-rolled fetch is what makes a 404
+   on a since-deleted account read as a sentence instead of "HTTP 404", and it
+   handles the bodyless DELETE that some proxies reject.
+
+   `data-following` on the button — not the label text — is the source of truth,
+   so the copy can change without breaking the toggle. */
+
+function setFollowState(btn, following){
+    btn.dataset.following = following ? 'true' : 'false';
+    const label = btn.querySelector('[data-follow-label]');
+    const icon = btn.querySelector('.material-symbols-outlined');
+    if (label) label.textContent = following ? 'Following' : 'Follow back';
+    if (icon) icon.textContent = following ? 'check' : 'person_add';
+    btn.classList.toggle('bg-primary', !following);
+    btn.classList.toggle('text-background', !following);
+    btn.classList.toggle('glass', following);
+    btn.classList.toggle('border', following);
+    btn.classList.toggle('border-border', following);
+}
+
+async function toggleFollow(btn){
+    const handle = btn.dataset.handle;
+    if (!handle) return;
+    const wasFollowing = btn.dataset.following === 'true';
+    const url = '/api/users/' + encodeURIComponent(handle) + '/follow';
+
+    /* Optimistic: the button reflects the tap immediately and rolls back only if
+       the request fails. A follow is cheap to undo, and a 300ms dead button on a
+       campus connection feels broken. */
+    setFollowState(btn, !wasFollowing);
+    btn.disabled = true;
+
+    try {
+        const data = wasFollowing ? await delJSON(url) : await postJSON(url);
+        /* Trust the server's answer over the optimistic guess — it is the one
+           that survives a race with the same toggle open in another tab. */
+        setFollowState(btn, !!data.following);
+    } catch (err){
+        setFollowState(btn, wasFollowing);
+        if (window.showToast) showToast(errorMessage(err, "That didn't go through. Try again."));
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-follow-toggle]');
+    if (btn){ e.preventDefault(); toggleFollow(btn); }
+});
+
+/* Twemoji pass over anything the server rendered — display names and bios can
+   contain emoji, same as every other page. */
+if (window.cfParseEmoji) window.cfParseEmoji(document.body);
+
+</script>
+{% endblock %}

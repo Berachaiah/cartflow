@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-xl mx-auto">
+  <div class="glass panel p-6 sm:p-10">
+    <div class="mb-8 text-center">
+      <div class="w-14 h-14 mx-auto mb-4 rounded-2xl bg-primary/15 flex items-center justify-center">
+        <span class="material-symbols-outlined text-primary text-[28px]">add_business</span>
+      </div>
+      <h1 class="font-display text-3xl font-bold mb-2">Request a university</h1>
+      <p class="caption-text text-sm">Not listed yet? Tell us about it and we’ll add it after a quick review.</p>
+    </div>
+
+    <form id="requestForm" class="space-y-5" novalidate>
+      <div>
+        <label for="requested_name" class="block text-sm font-semibold mb-1.5">University name</label>
+        <input id="requested_name" name="requested_name" type="text" required minlength="2"
+          class="w-full bg-card border border-border rounded-xl px-4 py-3 text-sm outline-none focus:border-primary transition"
+          placeholder="e.g. Bells University of Technology">
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label for="country" class="block text-sm font-semibold mb-1.5">Country</label>
+          <input id="country" name="country" type="text" value="Nigeria"
+            class="w-full bg-card border border-border rounded-xl px-4 py-3 text-sm outline-none focus:border-primary transition">
+        </div>
+        <div>
+          <label for="state" class="block text-sm font-semibold mb-1.5">State <span class="text-muted font-normal">(optional)</span></label>
+          <select id="state" name="state"
+            class="w-full bg-card border border-border rounded-xl px-4 py-3 text-sm outline-none focus:border-primary transition">
+            <option value="">Select a state</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="form_error" class="hidden text-sm text-danger bg-danger/10 border border-danger/30 rounded-xl px-4 py-3"></div>
+
+      <button type="submit" id="submitBtn"
+        class="w-full rounded-2xl bg-primary hover:bg-primaryDark text-background font-bold py-4 transition btn-glow flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed">
+        <span id="submitLabel">Submit request</span>
+      </button>
+
+      <p class="text-center text-sm caption-text">
+        <a href="/universities" class="text-primary font-semibold hover:underline">← Back to directory</a>
+      </p>
+    </form>
+
+    <div id="result_panel" class="hidden text-center py-6">
+      <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-success/15 flex items-center justify-center">
+        <span class="material-symbols-outlined text-success text-[32px]">task_alt</span>
+      </div>
+      <h2 class="font-display text-2xl font-bold mb-2">Request received</h2>
+      <p class="caption-text text-sm mb-6">
+        Thanks! We’ll review <strong id="result_name"></strong> and add it soon. You can
+        continue to sign up — once it’s approved we’ll link your account automatically.
+      </p>
+      <a href="/signup" class="inline-flex items-center gap-1.5 rounded-2xl bg-primary hover:bg-primaryDark text-background font-bold px-6 py-3 transition btn-glow">
+        Continue to signup
+      </a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+<script src="{{ url_for('static', path='js/cartflow-forms.js') }}"></script>
+<script>
+(function () {
+  const form = document.getElementById("requestForm");
+  const stateEl = document.getElementById("state");
+  const nameEl = document.getElementById("requested_name");
+  const formError = document.getElementById("form_error");
+  const submitBtn = document.getElementById("submitBtn");
+  const submitLabel = document.getElementById("submitLabel");
+
+  NG_STATES.forEach((s) => {
+    const o = document.createElement("option");
+    o.value = s; o.textContent = s;
+    stateEl.appendChild(o);
+  });
+
+  // Prefill the name if we arrived from the signup "request it" link.
+  const params = new URLSearchParams(location.search);
+  if (params.get("name")) nameEl.value = params.get("name");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    formError.classList.add("hidden");
+    const payload = {
+      requested_name: nameEl.value.trim(),
+      country: document.getElementById("country").value.trim() || "Nigeria",
+      type: "university",
+    };
+    const state = stateEl.value;
+    if (state) payload.state = state;
+
+    submitBtn.disabled = true;
+    submitLabel.textContent = "Submitting…";
+    try {
+      const res = await postJSON("/api/organizations/requests", payload);
+      document.getElementById("result_name").textContent = res.requested_name;
+      form.classList.add("hidden");
+      document.getElementById("result_panel").classList.remove("hidden");
+    } catch (err) {
+      formError.textContent = errorMessage(err);
+      formError.classList.remove("hidden");
+      submitBtn.disabled = false;
+      submitLabel.textContent = "Submit request";
+    }
+  });
+})();
+</script>
+{% endblock %}

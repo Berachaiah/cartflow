@@ -1,0 +1,137 @@
+{# Log in — the single identifier field accepts a username OR an email;
+   app/services/session.py matches both columns in one query. #}
+{% extends "auth_base.html" %}
+{% import "auth_macros.html" as ui %}
+
+{% block auth_title %}Welcome back{% endblock %}
+{% block auth_sub %}Log in to your CartFlow account{% endblock %}
+
+{% block auth_body %}
+<form id="loginForm" novalidate>
+  <div id="formAlert" class="alert alert-danger" role="alert" hidden></div>
+
+  {{ ui.textfield(
+       id="identifier", label="Username or email", type="text",
+       autocomplete="username", icon="person",
+       placeholder="adalovelace or you@email.com",
+       maxlength="255", autofocus=True) }}
+
+  {{ ui.passwordfield(
+       id="password", label="Password",
+       autocomplete="current-password",
+       placeholder="Your password") }}
+
+  {# Row, not a stacked link: "Keep me logged in" and "Forgot password?"
+     are the two things people reach for at this exact moment, and putting
+     them on one line keeps the submit button above the fold on a phone. #}
+  <div class="form-row">
+    <label class="flex items-center gap-2.5 text-sm text-muted cursor-pointer select-none w-fit">
+      <input id="remember" type="checkbox"
+             class="w-[17px] h-[17px] rounded-md accent-[#7CC6FF] cursor-pointer">
+      <span>Keep me logged in</span>
+    </label>
+    <a href="/forgot-password" class="link-quiet">Forgot password?</a>
+  </div>
+
+  <button type="submit" class="btn btn-primary" id="loginBtn" data-loading="false">
+    <span class="btn-label">Log in</span>
+  </button>
+</form>
+
+{% if google_oauth %}
+<div class="or-divider">or</div>
+{{ ui.google_button() }}
+{% endif %}
+
+<p class="auth-alt">New to CartFlow?
+  <a href="/signup">Create an account</a></p>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+(function () {
+  const form    = document.getElementById('loginForm');
+  const alertEl = document.getElementById('formAlert');
+  const btn     = document.getElementById('loginBtn');
+  const idEl    = document.getElementById('identifier');
+  const pwEl    = document.getElementById('password');
+
+  /* Where a successful login lands. `next_url` is set when the user was bounced
+     here from a page that needs a session (e.g. /settings), and the route has
+     already checked it is a path on this host — never an absolute URL — so this
+     can't be turned into an off-site redirect. `| tojson` keeps a handle
+     containing a quote from breaking out of the literal. */
+  const NEXT_URL = {{ (next_url or '/discover') | tojson }};
+
+  bindPasswordToggle('password');
+
+  /* ============ GOOGLE LOGIN ============
+     Present only when OAuth is configured (see pages.py). intent=login so the
+     callback lands a returning Google user in a session and sends a brand-new
+     Google user to the finish-signup step.
+
+     Note this path ignores NEXT_URL: the post-login redirect happens server-side
+     in the OAuth callback, so carrying a destination through would mean signing
+     it into the `state` token. Not worth it — a Google user who was bounced from
+     /settings lands on /discover and taps through, rather than us adding another
+     attacker-controllable field to the state we verify. */
+  const googleBtn = document.getElementById('googleBtn');
+  if (googleBtn) {
+    googleBtn.addEventListener('click', () => {
+      setLoading(googleBtn, true);
+      window.location.assign('/api/auth/google/login?intent=login');
+    });
+  }
+
+  function showAlert(msg) {
+    alertEl.textContent = msg;
+    alertEl.hidden = false;
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    alertEl.hidden = true;
+    clearFieldError('identifier');
+    clearFieldError('password');
+
+    const identifier = idEl.value.trim();
+    const password   = pwEl.value;
+
+    /* Validate before the round-trip so the common typo gets an instant
+       inline answer instead of a spinner and a 422. */
+    let bad = false;
+    if (!identifier) { setFieldError('identifier', 'Enter your username or email.'); bad = true; }
+    if (!password)   { setFieldError('password', 'Enter your password.'); bad = true; }
+    if (bad) return;
+
+    setLoading(btn, true);
+    try {
+      await postJSON('/api/auth/login', {
+        identifier: identifier,
+        password: password,
+        remember: document.getElementById('remember').checked,
+      });
+      /* The session cookie is set server-side; just move on. */
+      window.location.assign(NEXT_URL);
+    } catch (err) {
+      setLoading(btn, false);
+      /* One friendly line, never a raw/validation dump. Wrong credentials is
+         by far the common case, so 401 (and the schema-level 422 you'd get
+         from an empty field slipping past the guard above) both collapse to
+         the same simple message; a rate-limit keeps its own wording. */
+      let msg;
+      if (err.status === 429) {
+        msg = errorMessage(err, 'Too many attempts. Please try again shortly.');
+      } else if (err.status === 401 || err.status === 422) {
+        msg = 'Invalid username or password.';
+      } else {
+        msg = 'Unable to log in. Please try again.';
+      }
+      showAlert(msg);
+      pwEl.value = '';
+      pwEl.focus();
+    }
+  });
+})();
+</script>
+{% endblock %}

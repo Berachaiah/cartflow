@@ -1,0 +1,193 @@
+{# ==========================================================================
+   THE THREAD PANE — static chrome only.
+
+   Every *variable* part of a thread is rendered by cartflow-messages.js from
+   `GET /api/messages/threads/{username}`: the header, the bubbles, the request
+   banner's wording, the composer's disabled reason. This file holds the parts
+   that never change — the boxes those things go into, and the states that carry
+   no data (the desktop placeholder, the load-earlier button, the typing line).
+
+   Why the split is here and not somewhere more even: a bubble has to be drawn by
+   JavaScript no matter what, because it can arrive over a socket. Drawing it in
+   Jinja *as well* would mean two renderers for one row, and the day they disagree
+   is the day the same message reads differently depending on whether you scrolled
+   to it or watched it land. So there is exactly one renderer for anything with a
+   message in it, and it lives in JS. Jinja owns the furniture.
+
+   The DOM contract with cartflow-messages.js is the `data-*` attributes below.
+   They are the API between the two files; classes are styling and may change.
+
+   Included by messages.html into the right-hand pane. Nothing here is
+   conditional on the viewer, so it takes no context.
+========================================================================== #}
+
+{# ---- Desktop placeholder. Only ever visible at lg+, where the pane exists
+   with nothing open. On a phone the list and the thread are the same column, so
+   "no thread selected" is just the list, and this is never shown. ---- #}
+<div data-thread-placeholder class="hidden lg:flex flex-col items-center justify-center h-full px-6 text-center">
+    <span class="w-14 h-14 rounded-2xl bg-card border border-border flex items-center justify-center" aria-hidden="true">
+        <span class="material-symbols-outlined text-[26px] text-muted">forum</span>
+    </span>
+    <h2 class="font-display text-[15px] font-bold mt-3">Your messages</h2>
+    <p class="caption-text text-[13px] mt-1.5 max-w-[18rem] leading-snug">
+        Pick a conversation to read it, or start one with someone you follow.
+    </p>
+    <button type="button" data-compose-open
+            class="mt-4 inline-flex items-center gap-1.5 rounded-full bg-primary text-background font-bold px-4 py-2 text-[13px] btn-glow">
+        <span class="material-symbols-outlined text-[17px]" aria-hidden="true">edit</span>
+        New message
+    </button>
+</div>
+
+{# ---- The thread itself. `hidden` until JS has something to put in it: an
+   empty header with a spinner where a name goes reads as broken, whereas a pane
+   that appears complete reads as fast. ---- #}
+<div data-thread hidden class="flex flex-col h-full min-h-0">
+
+    <!-- ===================== HEADER =====================
+         The back arrow is mobile-only: at lg+ the list is still on screen to the
+         left, so there is nothing to go back to. -->
+    <header class="shrink-0 flex items-center gap-2.5 px-3 sm:px-4 py-2.5 border-b border-border">
+        <button type="button" data-thread-back aria-label="Back to messages"
+                class="lg:hidden w-9 h-9 rounded-full glass flex items-center justify-center shrink-0">
+            <span class="material-symbols-outlined text-[20px]" aria-hidden="true">arrow_back</span>
+        </button>
+
+        {# The whole identity block is one link to the profile — a name you can
+           tap is the shortest path to "who is this person", and it is the same
+           affordance every other row in the app gives.
+
+           No `-mx-` to widen the hover target past its own box: in this codebase a
+           negative horizontal margin means one thing, a full-bleed row cancelling
+           the shell's padding, and test_layout_shell enforces that it matches
+           exactly. Four extra pixels of hover surface is not worth making that
+           rule ambiguous. #}
+        <a data-thread-profile href="#" class="flex items-center gap-2.5 min-w-0 flex-1 rounded-xl py-0.5 hover:bg-glass transition-colors">
+            <span data-thread-avatar class="shrink-0"></span>
+            <span class="min-w-0">
+                <span class="flex items-center gap-1">
+                    <span data-thread-name class="block text-[13.5px] font-semibold truncate"></span>
+                    <span data-thread-seller hidden class="material-symbols-outlined text-[15px] text-primary shrink-0" title="Seller" aria-label="Seller">verified</span>
+                </span>
+                {# Presence and the disappearing note share this line. Two lines
+                   of 11px metadata under a 13px name is more chrome than the
+                   header has content for. #}
+                <span class="flex items-center gap-1.5 text-[11.5px] text-muted">
+                    <span data-thread-presence-dot hidden class="w-1.5 h-1.5 rounded-full bg-success shrink-0" aria-hidden="true"></span>
+                    <span data-thread-presence class="truncate"></span>
+                </span>
+            </span>
+        </a>
+
+        {# The timer's state, in the header rather than behind the menu: it
+           changes what happens to everything typed below it, so it is status,
+           not a setting. Tapping it opens the sheet that explains and toggles. #}
+        <button type="button" data-disappearing-open hidden
+                class="shrink-0 h-8 rounded-full glass px-2.5 flex items-center gap-1 text-[11.5px] font-semibold"
+                aria-label="Disappearing messages">
+            <span class="material-symbols-outlined text-[15px]" aria-hidden="true">timer</span>
+            <span data-disappearing-label class="hidden sm:inline"></span>
+        </button>
+
+        <button type="button" data-thread-menu-open aria-label="Conversation options" aria-haspopup="dialog"
+                class="shrink-0 w-9 h-9 rounded-full glass flex items-center justify-center">
+            <span class="material-symbols-outlined text-[20px]" aria-hidden="true">more_horiz</span>
+        </button>
+    </header>
+
+    <!-- ===================== REQUEST BANNER (§7) =====================
+         Above the messages, not below them, and above a composer that WORKS:
+         replying is accepting, so the composer is live on an incoming request
+         and these two buttons are a shortcut rather than a gate. "Delete" is the
+         doc's word, and it is not "Decline" — the sender is never told. -->
+    <div data-request-banner hidden class="shrink-0 px-3 sm:px-4 py-2.5 border-b border-border bg-glass">
+        <p class="text-[12.5px] font-semibold">
+            <span data-request-name></span> sent you a message request.
+        </p>
+        <p class="caption-text text-[11.5px] mt-0.5 leading-snug">
+            Replying accepts it. Deleting it is quiet — they are not told, and they still cannot write again.
+        </p>
+        <div class="flex items-center gap-2 mt-2">
+            <button type="button" data-request-accept
+                    class="rounded-full bg-primary text-background font-bold px-3.5 py-1.5 text-[12.5px] btn-glow">
+                Accept
+            </button>
+            <button type="button" data-request-decline
+                    class="rounded-full glass font-semibold px-3.5 py-1.5 text-[12.5px]">
+                Delete
+            </button>
+            <button type="button" data-thread-menu-open
+                    class="rounded-full glass font-semibold px-3.5 py-1.5 text-[12.5px] ml-auto">
+                Block or report
+            </button>
+        </div>
+    </div>
+
+    <!-- ===================== MESSAGES =====================
+         The one scrolling region on the page. `overflow-anchor` is off because
+         we pin the scroll ourselves: appending a bubble should stick to the
+         bottom, but prepending an older page must not move the reading position,
+         and the browser's own anchoring cannot tell those two apart. -->
+    <div data-messages class="flex-1 min-h-0 overflow-y-auto px-3 sm:px-4 py-3 space-y-2 msg-scroll">
+        <div class="text-center">
+            <button type="button" data-load-earlier hidden
+                    class="glass rounded-full px-3.5 py-1.5 text-[12px] font-semibold">
+                Load earlier messages
+            </button>
+        </div>
+        <div data-bubbles class="space-y-2"></div>
+        {# The start-of-thread note, for a conversation with nothing in it yet.
+           Not an empty_state: this is a composer-first screen, and a big centred
+           illustration would push the composer off a phone. #}
+        <div data-thread-intro hidden class="px-2 py-6 text-center">
+            <p class="text-[13px] font-semibold">Say hello</p>
+            <p data-thread-intro-body class="caption-text text-[12px] mt-1 max-w-[18rem] mx-auto leading-snug"></p>
+        </div>
+    </div>
+
+    <!-- ===================== TYPING (§18) =====================
+         Its own row outside the scroll region, so an indicator appearing does
+         not shift the messages above it. -->
+    <div data-typing hidden class="shrink-0 px-4 pb-1 text-[11.5px] text-muted flex items-center gap-1.5">
+        <span class="msg-typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span data-typing-label></span>
+    </div>
+
+    <!-- ===================== COMPOSER =====================
+         Rendered even when it cannot be used, with the reason in place of the
+         input: a composer that vanishes leaves the user guessing whether the
+         page broke. -->
+    <div data-composer-closed hidden class="shrink-0 px-3 sm:px-4 py-3 border-t border-border">
+        <p data-composer-closed-reason class="caption-text text-[12.5px] text-center leading-snug"></p>
+    </div>
+
+    <form data-composer hidden class="shrink-0 flex items-end gap-2 px-3 sm:px-4 py-2.5 border-t border-border">
+        {# Photo first, at the left edge, because it is the one control that
+           opens something outside the page. A hidden file input rather than a
+           styled one: the native control cannot be made to match anything. #}
+        <input type="file" data-photo-input accept="image/*" class="hidden">
+        <button type="button" data-photo-open aria-label="Send a photo"
+                class="shrink-0 w-9 h-9 rounded-full glass flex items-center justify-center">
+            <span class="material-symbols-outlined text-[20px]" aria-hidden="true">image</span>
+        </button>
+
+        <div class="flex-1 min-w-0">
+            {# A textarea, not an input: messages wrap, and Enter sends while
+               Shift+Enter breaks the line (bound in JS). rows=1 with JS
+               auto-growth, so one line costs one line. #}
+            <label for="msgBody" class="sr-only">Message</label>
+            <textarea id="msgBody" data-composer-body rows="1" maxlength="2000"
+                      placeholder="Write a message" enterkeyhint="send"
+                      class="w-full resize-none bg-card border border-border rounded-2xl px-3.5 py-2 text-[13.5px] leading-snug
+                             max-h-32 focus:outline-none focus:border-primary"></textarea>
+            {# The one-message rule, said once, in the place where it changes what
+               you type. JS shows this only on a thread where it applies. #}
+            <p data-composer-note hidden class="caption-text text-[11px] mt-1 leading-snug"></p>
+        </div>
+
+        <button type="submit" data-composer-send aria-label="Send"
+                class="shrink-0 w-9 h-9 rounded-full bg-primary text-background flex items-center justify-center btn-glow disabled:opacity-40">
+            <span class="material-symbols-outlined text-[19px]" aria-hidden="true">send</span>
+        </button>
+    </form>
+</div>
