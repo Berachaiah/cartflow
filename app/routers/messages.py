@@ -515,3 +515,106 @@ async def set_disappearing(
         disappear_after_seconds=conversation.disappear_after_seconds,
         changed=changed,
     )
+
+
+# --- pins and wallpapers (migration 0011) ---------------------------------
+import uuid as _uuid
+from typing import Literal as _Literal
+
+from fastapi import Query as _Query
+from pydantic import BaseModel as _BaseModel
+
+from app.services import message_extras as extras_service
+
+
+class _PresetBody(_BaseModel):
+    scope: _Literal["chat", "all"]
+    conversation: _uuid.UUID | None = None
+    preset: str
+    dim: int = 0
+
+
+@router.get("/{public_id}/pins")
+async def list_pins(
+    public_id: _uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await extras_service.list_pins(db, viewer=current_user, public_id=public_id)
+
+
+@router.post("/{public_id}/pins/{message_id}")
+async def pin_message(
+    public_id: _uuid.UUID,
+    message_id: _uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    payload, party = await extras_service.pin_message(
+        db, viewer=current_user, public_id=public_id, message_public_id=message_id
+    )
+    await realtime.publish(party, {"type": "pins", "conversation": str(public_id)})
+    return payload
+
+
+@router.delete("/{public_id}/pins/{message_id}")
+async def unpin_message(
+    public_id: _uuid.UUID,
+    message_id: _uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    payload, party = await extras_service.unpin_message(
+        db, viewer=current_user, public_id=public_id, message_public_id=message_id
+    )
+    await realtime.publish(party, {"type": "pins", "conversation": str(public_id)})
+    return payload
+
+
+@router.get("/wallpaper")
+async def get_wallpaper(
+    conversation: _uuid.UUID | None = _Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await extras_service.resolve_wallpaper(db, viewer=current_user, conversation=conversation)
+
+
+@router.put("/wallpaper")
+async def put_wallpaper(
+    body: _PresetBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await extras_service.set_preset(
+        db, viewer=current_user, scope=body.scope, conversation=body.conversation,
+        preset=body.preset, dim=body.dim,
+    )
+
+
+@router.post("/wallpaper/photo")
+async def post_wallpaper_photo(
+    file: UploadFile = File(...),
+    scope: str = Form(...),
+    conversation: str | None = Form(default=None),
+    ratio: str | None = Form(default=None),
+    dim: int = Form(default=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if scope not in ("chat", "all"):
+        from app.core.exceptions import ValidationAppError as _VAE
+        raise _VAE("Choose this chat or all chats.", fields={"scope": "Invalid scope."})
+    return await extras_service.set_photo(
+        db, viewer=current_user, scope=scope, conversation=conversation, file=file, ratio=ratio, dim=dim
+    )
+
+
+@router.delete("/wallpaper")
+async def delete_wallpaper(
+    scope: _Literal["chat", "all"] = _Query(...),
+    conversation: _uuid.UUID | None = _Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await extras_service.clear_wallpaper(db, viewer=current_user, scope=scope, conversation=conversation)
