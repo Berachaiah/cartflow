@@ -1,111 +1,64 @@
 {% extends "base.html" %}
 {% block content %}
-<div data-mx class="relative"
-     data-me="{{ current_user.username }}"
-     data-open="{{ open_handle or '' }}"
-     data-share-slug="{{ share_slug or '' }}"
-     data-share-user="{{ share_user or '' }}">
-
-  <div id="mx-shell" class="flex w-full overflow-hidden bg-[var(--c-card,transparent)] lg:border-t border-[color-mix(in_srgb,currentColor_12%,transparent)]" style="height:70vh">
-
-    <!-- LIST -->
-    <section id="mx-list" aria-label="Conversations"
-             class="flex min-h-0 w-full flex-col lg:w-[23rem] lg:shrink-0 lg:border-r border-[color-mix(in_srgb,currentColor_12%,transparent)]">
-      <div class="flex items-center justify-between px-4 pt-4 pb-3">
-        <div>
-          <h1 class="text-[24px] font-extrabold leading-none tracking-tight">Messages</h1>
-          <p class="mt-1 text-[12.5px] opacity-60">Students and businesses, one to one</p>
-        </div>
-        <button id="mx-new" type="button" aria-label="New message"
-                class="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-background shadow-lg transition hover:scale-105 active:scale-95">
-          <span class="material-symbols-outlined text-[22px]" aria-hidden="true">edit_square</span>
-        </button>
+<link rel="stylesheet" href="/static/css/cartflow-messages.css">
+<div class="cm" id="cm" data-me="{{ current_user.username }}" data-open="{{ open_handle or '' }}" data-share-slug="{{ share_slug or '' }}" data-share-user="{{ share_user or '' }}">
+  <noscript><p style="padding:16px">Messages needs JavaScript.</p></noscript>
+  <div class="cm-shell" id="cm-shell">
+    <aside class="cm-list" aria-label="Conversations">
+      <div class="cm-lhead">
+        <label class="cm-field"><span class="material-symbols-outlined" aria-hidden="true">search</span><input id="cm-q" type="search" placeholder="Search conversations" autocomplete="off"></label>
+        <button class="cm-ib p" id="cm-new" type="button" aria-label="New message"><span class="material-symbols-outlined" aria-hidden="true">edit_square</span></button>
       </div>
+      <div class="cm-tabs" id="cm-tabs"></div>
+      <div class="cm-rows" id="cm-rows"></div>
+    </aside>
 
-      <div class="px-4 pb-3">
-        <label class="flex items-center gap-2 rounded-2xl px-3.5 py-2.5 bg-[color-mix(in_srgb,currentColor_7%,transparent)] focus-within:ring-2 focus-within:ring-primary">
-          <span class="material-symbols-outlined text-[20px] opacity-60" aria-hidden="true">search</span>
-          <input id="mx-q" type="search" autocomplete="off" placeholder="Search conversations"
-                 class="w-full bg-transparent text-[14px] outline-none placeholder:opacity-50">
-        </label>
+    <section class="cm-thread" aria-label="Conversation">
+      <div class="cm-blank" id="cm-blank">
+        <div class="big"><span class="material-symbols-outlined" style="font-size:40px;opacity:.7" aria-hidden="true">forum</span></div>
+        <h2 style="margin:0 0 6px;font-size:20px;font-weight:800">Your messages</h2>
+        <p style="margin:0 0 16px;opacity:.65;font-size:14px">Pick a conversation, or start one with someone you follow.</p>
+        <button class="cm-ib p" id="cm-new2" type="button" style="width:auto;padding:0 20px;border-radius:22px;font-weight:700;gap:8px"><span class="material-symbols-outlined" aria-hidden="true" style="font-size:19px">edit_square</span>New message</button>
       </div>
-
-      <div id="mx-tabs" class="flex gap-2 px-4 pb-3"></div>
-      <div id="mx-rows" class="min-h-0 flex-1 overflow-y-auto px-2 pb-2"></div>
-    </section>
-
-    <!-- THREAD -->
-    <section id="mx-thread" aria-label="Conversation" class="hidden min-h-0 min-w-0 flex-1 flex-col lg:flex">
-      <div id="mx-blank" class="m-auto flex max-w-xs flex-col items-center px-6 text-center">
-        <div class="flex h-20 w-20 items-center justify-center rounded-3xl bg-[color-mix(in_srgb,currentColor_7%,transparent)]">
-          <span class="material-symbols-outlined text-[38px] opacity-70" aria-hidden="true">forum</span>
-        </div>
-        <h2 class="mt-5 text-[20px] font-extrabold tracking-tight">Your messages</h2>
-        <p class="mt-1.5 text-[14px] opacity-60">Pick a conversation, or start one with someone you follow.</p>
-        <button id="mx-new2" type="button" class="mt-5 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-[14px] font-semibold text-background shadow-lg transition hover:scale-105">
-          <span class="material-symbols-outlined text-[18px]" aria-hidden="true">edit_square</span>New message
-        </button>
-      </div>
-
-      <div id="mx-view" hidden class="min-h-0 flex-1 flex-col" style="display:none">
-        <header class="flex items-center gap-3 border-b px-3 py-2.5 border-[color-mix(in_srgb,currentColor_12%,transparent)]">
-          <button id="mx-back" type="button" aria-label="Back" class="flex h-10 w-10 items-center justify-center rounded-full hover:bg-[color-mix(in_srgb,currentColor_8%,transparent)] lg:hidden">
-            <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
-          </button>
-          <div id="mx-hav"></div>
-          <div class="min-w-0 flex-1">
-            <div id="mx-hname" class="truncate text-[15px] font-bold leading-tight"></div>
-            <div id="mx-hsub" class="truncate text-[12.5px] opacity-60"></div>
-          </div>
-          <div class="relative">
-            <button id="mx-more" type="button" aria-label="More" class="flex h-10 w-10 items-center justify-center rounded-full hover:bg-[color-mix(in_srgb,currentColor_8%,transparent)]">
-              <span class="material-symbols-outlined" aria-hidden="true">more_vert</span>
-            </button>
-            <div id="mx-menu" hidden class="absolute right-0 top-11 z-10 w-48 overflow-hidden rounded-2xl border bg-[var(--c-card,#fff)] py-1 text-[14px] shadow-2xl border-[color-mix(in_srgb,currentColor_12%,transparent)]">
-              <a id="mx-profile" class="flex items-center gap-2 px-4 py-2.5 hover:bg-[color-mix(in_srgb,currentColor_8%,transparent)]" href="#"><span class="material-symbols-outlined text-[18px]" aria-hidden="true">person</span>View profile</a>
-              <button id="mx-block" type="button" class="flex w-full items-center gap-2 px-4 py-2.5 text-left text-red-500 hover:bg-[color-mix(in_srgb,currentColor_8%,transparent)]"><span class="material-symbols-outlined text-[18px]" aria-hidden="true">block</span>Block</button>
-            </div>
-          </div>
+      <div class="cm-view" id="cm-view" hidden>
+        <header class="cm-head">
+          <button class="cm-ib sm cm-back" id="cm-back" type="button" aria-label="Back"><span class="material-symbols-outlined" aria-hidden="true">arrow_back</span></button>
+          <div id="cm-hav"></div>
+          <div class="cm-hm"><div class="cm-nm" id="cm-hname"></div><div class="cm-sub" id="cm-hsub"></div></div>
+          <button class="cm-pill" id="cm-timer" type="button" hidden><span class="material-symbols-outlined" aria-hidden="true">timer</span><span id="cm-timer-t"></span></button>
+          <button class="cm-ib sm" id="cm-search" type="button" aria-label="Search in chat"><span class="material-symbols-outlined" aria-hidden="true">search</span></button>
+          <button class="cm-ib sm" id="cm-infobtn" type="button" aria-label="Contact info"><span class="material-symbols-outlined" aria-hidden="true">info</span></button>
         </header>
-
-        <div id="mx-banner" hidden class="flex items-center justify-between gap-3 px-4 py-3 text-[14px] bg-[color-mix(in_srgb,currentColor_7%,transparent)]">
-          <span><b>Message request.</b> Replying accepts it.</span>
-          <span class="flex shrink-0 gap-2">
-            <button id="mx-accept" type="button" class="rounded-full bg-primary px-4 py-1.5 text-[13px] font-semibold text-background">Accept</button>
-            <button id="mx-decline" type="button" class="rounded-full px-4 py-1.5 text-[13px] font-semibold bg-[color-mix(in_srgb,currentColor_10%,transparent)]">Delete</button>
-          </span>
+        <div class="cm-sbar" id="cm-sbar" hidden>
+          <label class="cm-field" style="height:38px"><span class="material-symbols-outlined" aria-hidden="true">search</span><input id="cm-sq" type="search" placeholder="Search this chat" autocomplete="off"></label>
+          <span class="cm-sub" id="cm-scount" style="min-width:64px;text-align:center"></span>
+          <button class="cm-ib sm" id="cm-sup" type="button" aria-label="Previous"><span class="material-symbols-outlined" aria-hidden="true">keyboard_arrow_up</span></button>
+          <button class="cm-ib sm" id="cm-sdown" type="button" aria-label="Next"><span class="material-symbols-outlined" aria-hidden="true">keyboard_arrow_down</span></button>
+          <button class="cm-ib sm" id="cm-sclose" type="button" aria-label="Close search"><span class="material-symbols-outlined" aria-hidden="true">close</span></button>
         </div>
-
-        <div class="relative min-h-0 flex-1">
-          <div id="mx-msgs" class="absolute inset-0 overflow-y-auto px-4 py-4"></div>
-          <button id="mx-down" type="button" hidden aria-label="Latest" class="absolute bottom-3 right-4 flex h-10 w-10 items-center justify-center rounded-full border bg-[var(--c-card,#fff)] shadow-xl border-[color-mix(in_srgb,currentColor_12%,transparent)]">
-            <span class="material-symbols-outlined" aria-hidden="true">keyboard_arrow_down</span>
-          </button>
-        </div>
-
-        <div id="mx-note" class="px-4 text-[12.5px] empty:hidden"></div>
-        <form id="mx-form" class="flex items-end gap-2 border-t p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-[color-mix(in_srgb,currentColor_12%,transparent)]">
-          <textarea id="mx-input" rows="1" maxlength="4000" placeholder="Message…"
-                    class="max-h-32 min-h-[44px] flex-1 resize-none rounded-3xl px-4 py-[11px] text-[15px] outline-none bg-[color-mix(in_srgb,currentColor_7%,transparent)] placeholder:opacity-50 focus:ring-2 focus:ring-primary disabled:opacity-50"></textarea>
-          <button id="mx-send" type="submit" aria-label="Send" class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-background shadow-lg transition hover:scale-105 active:scale-95 disabled:opacity-40 disabled:hover:scale-100">
-            <span class="material-symbols-outlined text-[22px]" aria-hidden="true">send</span>
-          </button>
+        <div class="cm-banner" id="cm-banner" hidden><span><b>Message request.</b> Replying accepts it.</span><span style="display:flex;gap:8px"><button class="cm-bb p" id="cm-accept" type="button">Accept</button><button class="cm-bb" id="cm-decline" type="button">Delete</button></span></div>
+        <div class="cm-wrap"><div class="cm-msgs wp-default" id="cm-msgs"></div><button class="cm-down" id="cm-downbtn" type="button" hidden aria-label="Latest"><span class="material-symbols-outlined" aria-hidden="true">keyboard_arrow_down</span></button></div>
+        <div class="cm-note" id="cm-note"></div>
+        <div class="cm-tray" id="cm-tray" hidden><img id="cm-trayimg" alt=""><div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14px">1 photo</div><div class="cm-sub" id="cm-traysz"></div></div><button class="cm-ib sm" id="cm-trayx" type="button" aria-label="Remove photo"><span class="material-symbols-outlined" aria-hidden="true">close</span></button></div>
+        <form class="cm-comp" id="cm-form">
+          <button class="cm-ib p" id="cm-cam" type="button" aria-label="Camera"><span class="material-symbols-outlined" aria-hidden="true">photo_camera</span></button>
+          <div class="cm-in">
+            <textarea id="cm-input" rows="1" maxlength="2000" placeholder="Message…"></textarea>
+            <button class="cm-ib" id="cm-emo" type="button" aria-label="Emoji"><span class="material-symbols-outlined" aria-hidden="true">mood</span></button>
+            <button class="cm-ib" id="cm-clip" type="button" aria-label="Attach a photo"><span class="material-symbols-outlined" aria-hidden="true">attach_file</span></button>
+          </div>
+          <button class="cm-ib p" id="cm-act" type="button" aria-label="Voice note"><span class="material-symbols-outlined" aria-hidden="true">mic</span></button>
+          <div class="cm-emoji" id="cm-emoji" hidden></div>
+          <input type="file" id="cm-file" accept="image/*" hidden>
+          <input type="file" id="cm-filecam" accept="image/*" capture="environment" hidden>
         </form>
       </div>
     </section>
-  </div>
 
-  <!-- NEW MESSAGE SHEET -->
-  <div id="mx-over" hidden class="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 backdrop-blur-sm lg:items-center">
-    <div class="flex max-h-[80vh] w-full flex-col rounded-t-3xl bg-[var(--c-card,#fff)] p-4 shadow-2xl lg:w-[26rem] lg:rounded-3xl">
-      <div class="mb-3 flex items-center justify-between">
-        <strong class="text-[17px] font-extrabold">New message</strong>
-        <button id="mx-close" type="button" aria-label="Close" class="flex h-9 w-9 items-center justify-center rounded-full hover:bg-[color-mix(in_srgb,currentColor_8%,transparent)]"><span class="material-symbols-outlined" aria-hidden="true">close</span></button>
-      </div>
-      <form id="mx-goform"><input id="mx-handle" autocomplete="off" placeholder="Type a username and press Enter" class="w-full rounded-2xl px-4 py-2.5 text-[14px] outline-none bg-[color-mix(in_srgb,currentColor_7%,transparent)] focus:ring-2 focus:ring-primary"></form>
-      <div id="mx-cands" class="mt-3 min-h-0 flex-1 overflow-y-auto"></div>
-    </div>
+    <aside class="cm-info" id="cm-info" hidden aria-label="Contact info"></aside>
   </div>
+  <div id="cm-layer"></div>
+  <script type="application/json" id="cm-reasons">{{ report_reasons|tojson }}</script>
 </div>
 <script src="/static/js/cartflow-messages.js"></script>
 {% endblock %}
