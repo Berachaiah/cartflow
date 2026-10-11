@@ -111,3 +111,20 @@ async def client(engine):
         yield c
 
     app.dependency_overrides.clear()
+
+
+# --- Never touch the network from tests ---------------------------------
+import pytest as _pytest
+
+
+@_pytest.fixture(autouse=True)
+def _no_real_smtp(monkeypatch):
+    """Block real SMTP. Emails that would have been sent are collected in
+    `sent_emails` (a list of EmailMessage) for tests that want to look."""
+    sent = []
+
+    async def _fake_send(message, **kwargs):
+        sent.append(message)
+
+    monkeypatch.setattr("app.integrations.smtp_client.aiosmtplib.send", _fake_send)
+    return sent
