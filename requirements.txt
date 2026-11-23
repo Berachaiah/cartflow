@@ -1,38 +1,57 @@
+# --- Pinned exactly, 23 Nov 2026 ----------------------------------------
+#
+# Every entry used to be a `>=` range, and that is how this environment drifted:
+# the project was written against FastAPI 0.111, and the first Windows install
+# pulled FastAPI 0.165 / Starlette 1.10 / pytest 9.2 / SQLAlchemy 2.1 — pytest 9
+# alone changes the asyncio fixture defaults, and Starlette 1.10 deprecates
+# HTTP_422_UNPROCESSABLE_ENTITY, which this app still imports.
+#
+# These are the versions the full suite passes on (381 passed, 0 failed) and that
+# the messaging page was verified against in a browser at 375px and 1280px.
+# They are not guesses about what "should" work.
+#
+# To move a pin: change it here, install into a fresh venv, run the whole suite,
+# and commit the bump on its own. A pin nobody has run the tests against is a
+# different kind of drift, not a fix for it.
+#
+# Transitive dependencies (starlette, anyio, h11, ...) are deliberately NOT
+# listed: they follow from these pins, and hand-pinning the whole closure turns
+# every security bump into a manual audit of 40 packages the project doesn't use.
+
 # --- Web framework ----------------------------------------------------
-fastapi>=0.111
-uvicorn[standard]>=0.30
-jinja2>=3.1
-python-multipart>=0.0.9
-itsdangerous>=2.2          # required by Starlette SessionMiddleware (cookie sessions)
+fastapi==0.165.0
+uvicorn[standard]==0.54.0
+jinja2==3.1.6
+python-multipart==0.0.34
+itsdangerous==2.2.0          # required by Starlette SessionMiddleware (cookie sessions)
 
-# --- Config & validation ------------------------------------------------
-pydantic>=2.7
-pydantic-settings>=2.2
-python-dotenv>=1.0
+# --- Config & validation ----------------------------------------------
+pydantic==2.14.4
+pydantic-settings==2.16.3
+python-dotenv==1.2.4
+email-validator==2.4.0       # what `pydantic[email]` installs; pinned as a direct dep
 
-# --- Database -------------------------------------------------------
-sqlalchemy>=2.0,<3.0
-alembic>=1.13
-asyncpg>=0.29               # async PostgreSQL driver
-greenlet>=3.0                # required by SQLAlchemy async
+# --- Database ---------------------------------------------------------
+sqlalchemy==2.1.9
+alembic==1.20.1
+asyncpg==0.32.0              # async PostgreSQL driver
+greenlet==3.5.6              # required by SQLAlchemy async
 
 # --- Auth / security --------------------------------------------------
-argon2-cffi>=23.1            # password hashing (Argon2id, per PRD Ch.12 sec 7)
+argon2-cffi==25.1.0          # password hashing (Argon2id, per PRD Ch.12 sec 7)
+
+# --- Integrations -----------------------------------------------------
+resend==2.55.0               # kept: the Resend client is still importable
+aiosmtplib==5.1.3            # what actually sends mail today (Hacom SMTP)
 
 # --- Background jobs (added when the jobs/ module is built out) -------
 # celery>=5.4
 # redis>=5.0
-
-# --- Integrations (added alongside each integration module) -----------
 # cloudinary>=1.40
-# resend>=0.8
 
-# --- Testing ------------------------------------------------------------
-pytest>=8.0
-pytest-asyncio>=0.23
-httpx>=0.27
-aiosqlite>=0.19             # async SQLite driver for the test suite (tests/conftest.py)
-aiomysql>=0.2.0  # swap-in async driver if DATABASE_URL later points at MySQL
-pydantic[email]
-resend
-aiosmtplib
+# --- Testing ----------------------------------------------------------
+pytest==9.2.0
+pytest-asyncio==1.5.0
+httpx==0.28.1
+aiosqlite==0.22.1            # async SQLite driver for the test suite (tests/conftest.py)
+aiomysql==0.3.2              # swap-in async driver if DATABASE_URL later points at MySQL

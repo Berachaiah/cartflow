@@ -11,6 +11,19 @@
         <button class="cm-ib p" id="cm-new" type="button" aria-label="New message"><span class="material-symbols-outlined" aria-hidden="true">edit_square</span></button>
       </div>
       <div class="cm-tabs" id="cm-tabs"></div>
+      {# Doc 10 §6, the half that changes what someone types.
+
+         HERE, not in the blank pane, and that is a correction: the thread pane
+         is `display:none` below 1024px (see cartflow-messages.css), so a rule
+         parked there was invisible on the phone — where most of these users
+         are, and where a first message to a stranger is the exact thing about
+         to happen. It sits under the tabs it explains, and it is the same copy
+         at every width.
+
+         Static copy, not a conversation, so it stays server-rendered — ONE
+         RENDERER is about rows and bubbles, and a rule drawn by Jinja cannot
+         disagree with an API payload. #}
+      <p class="cm-rule">A first message to someone you don't follow goes to their requests until they reply. A first message someone sends you lands in Requests, where their one message waits here until you reply or delete it.</p>
       <div class="cm-rows" id="cm-rows"></div>
     </aside>
 
@@ -18,14 +31,7 @@
       <div class="cm-blank" id="cm-blank">
         <div class="big"><span class="material-symbols-outlined" style="font-size:40px;opacity:.7" aria-hidden="true">forum</span></div>
         {{ page_head("Your messages") }}
-        <p style="margin:6px 0 12px;opacity:.65;font-size:14px">Pick a conversation, or start one with someone you follow.</p>
-        {# Doc 10 §6, the half that changes what someone types. This is static
-           copy, not a conversation, so it stays server-rendered — ONE RENDERER
-           is about rows and bubbles, and a rule rendered by Jinja cannot
-           disagree with an API payload. It lives in the blank pane because
-           that is what a first-time visitor sees, and reading it before you
-           message someone is the whole point. #}
-        <p style="margin:0 0 16px;opacity:.6;font-size:12.5px;line-height:1.5">A first message to someone you don't follow goes to their requests until they reply. A first message someone sends you lands in Requests, where their one message waits here until you reply or delete it.</p>
+        <p style="margin:6px 0 16px;opacity:.65;font-size:14px">Pick a conversation, or start one with someone you follow.</p>
         <button class="cm-ib p" id="cm-new2" type="button" style="width:auto;padding:0 20px;border-radius:22px;font-weight:700;gap:8px"><span class="material-symbols-outlined" aria-hidden="true" style="font-size:19px">edit_square</span>New message</button>
       </div>
       <div class="cm-view" id="cm-view" hidden>
