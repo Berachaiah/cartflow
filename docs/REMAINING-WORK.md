@@ -68,12 +68,12 @@ machine, `purge_expired` on the two halves of disappearing, and
 
 ### Still owed on messaging
 
-1. **`alembic upgrade head` against Supabase.** Checked on 2026-11-23: the live
-   database is at `0012_offers_deal` and has no `products` table, so `0013` is
-   the outstanding one — every catalogue query would fail in production until it
-   runs. (`0010`–`0012` are applied; this item used to claim otherwise.) Tests
-   get the whole schema free from `create_all`, so a green suite says nothing
-   about whether a table is there.
+1. **Put `alembic upgrade head` in the deploy step.** The database is current as
+   of 2026-11-23 — `0013_products` applied — but nothing applies migrations
+   automatically, and the failure that costs you is invisible to a green test
+   run: the suite builds its schema from `create_all`, so it passes whether or
+   not production has the table. This bit once already (`products` was missing
+   from Supabase while every test passed).
 2. **One worker, or fix the fan-out.** The socket registry is a per-process dict,
    so a message sent on one worker cannot reach a socket held by another.
    `docs/engineering/31-deployment-and-infrastructure.md:234` recommends multiple
