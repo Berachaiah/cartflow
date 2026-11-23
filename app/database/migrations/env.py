@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.config import get_settings
 from app.database.base import Base
+from app.database.session import connect_args_for
 
 # Importing the models package registers every ORM model on Base.metadata,
 # so `alembic revision --autogenerate` can see all tables. app/models/__init__.py
@@ -43,10 +44,15 @@ def do_run_migrations(connection) -> None:
 
 
 async def run_migrations_online() -> None:
+    # connect_args come from the app's own definition so a migration reaches the
+    # database under the same TLS requirement the app does. Without this, a
+    # deployment could talk to Supabase over TLS while `alembic upgrade` beside
+    # it opened a plaintext connection with the same credentials.
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=connect_args_for(settings.DATABASE_URL),
     )
 
     async with connectable.connect() as connection:

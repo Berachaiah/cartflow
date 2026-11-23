@@ -17,6 +17,24 @@ from app.core.config import get_settings
 settings = get_settings()
 
 
+def connect_args_for(url: str) -> dict:
+    """Dialect-specific `connect_args`, for every engine this project builds.
+
+    One definition on purpose: the app engine and Alembic's migration engine are
+    two separate `create_async_engine` calls, and a TLS requirement added to only
+    one of them is a requirement that migrates in the clear. `migrations/env.py`
+    imports this rather than describing its own.
+
+    SQLite gets `check_same_thread=False` because the test suite shares one
+    in-memory connection across tasks. Postgres gets `ssl` from DB_SSL, default
+    "require" — see the comment on that setting for why TLS is the default rather
+    than something you have to remember to turn on.
+    """
+    if url.startswith("sqlite"):
+        return {"check_same_thread": False}
+    return {"ssl": settings.DB_SSL}
+
+
 def _build_engine() -> AsyncEngine:
     """Create the async engine for the configured DATABASE_URL.
 
@@ -32,7 +50,7 @@ def _build_engine() -> AsyncEngine:
             settings.DATABASE_URL,
             echo=settings.DB_ECHO,
             poolclass=StaticPool,
-            connect_args={"check_same_thread": False},
+            connect_args=connect_args_for(settings.DATABASE_URL),
         )
     return create_async_engine(
         settings.DATABASE_URL,
@@ -40,6 +58,7 @@ def _build_engine() -> AsyncEngine:
         pool_size=settings.DB_POOL_SIZE,
         max_overflow=settings.DB_MAX_OVERFLOW,
         pool_pre_ping=True,
+        connect_args=connect_args_for(settings.DATABASE_URL),
     )
 
 

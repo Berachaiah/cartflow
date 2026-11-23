@@ -54,6 +54,13 @@ class Settings(BaseSettings):
     DB_ECHO: bool = False
     DB_POOL_SIZE: int = 5
     DB_MAX_OVERFLOW: int = 10
+    # TLS for the Postgres connection. The production target is Supabase, whose
+    # pooler is reached across the public internet with the password in the URL,
+    # so "require" is the default: a misconfigured or downgraded connection
+    # should fail loudly rather than quietly send credentials in the clear.
+    # Set DB_SSL=disable for a local Postgres with no TLS of its own. Ignored for
+    # SQLite, which has no transport to encrypt.
+    DB_SSL: Literal["require", "verify-ca", "verify-full", "prefer", "allow", "disable"] = "require"
 
     # --- Redis (optional for V1, see PRD Ch.12 sec 25) ------------------
     REDIS_URL: str | None = None
