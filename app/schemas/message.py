@@ -70,6 +70,9 @@ class MessageOut(BaseModel):
     # something was sent, and renders a placeholder.
     image_url: str | None = None
     shared_product_slug: str | None = None
+    offer_price: int | None = None
+    offer_listed: int | None = None
+    offer_status: str | None = None
     # None on a SHARED_PROFILE message means the account is gone (the FK is
     # ON DELETE SET NULL), and the card renders "no longer available" rather
     # than linking to a 404.
@@ -100,6 +103,9 @@ class MessageOut(BaseModel):
             expires_at=message.expires_at,
             image_url=media_service.photo_url(getattr(message, "media", None)),
             shared_product_slug=message.shared_product_slug,
+            offer_price=message.offer_price,
+            offer_listed=message.offer_listed,
+            offer_status=message.offer_status,
             shared_user=(
                 PublicUserOut.from_user(message.shared_user)
                 if getattr(message, "shared_user", None) is not None

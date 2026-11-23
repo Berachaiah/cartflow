@@ -45,4 +45,4 @@ from app.models.report import (  # noqa: F401
     ReportStatus,
 )
 # After `conversation`, `media` and `user`: pins and wallpapers point at all three.
-from app.models.message_extras import ChatWallpaper, MessagePin  # noqa: F401
+from app.models.message_extras import ChatWallpaper, ConversationProduct, MessagePin  # noqa: F401

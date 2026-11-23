@@ -64,3 +64,28 @@ class ChatWallpaper(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     focus_y: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
     ratio: Mapped[str | None] = mapped_column(String(8), nullable=True)
     dim: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+from sqlalchemy import Boolean as _Boolean  # noqa: E402
+
+OFFER_STATUSES = ("pending", "accepted", "countered", "declined", "withdrawn")
+
+
+class ConversationProduct(Base, TimestampMixin):
+    """The product pinned to a chat, plus who is selling it (migration 0012).
+
+    The catalogue is placeholder data with no seller, so the person who pins a
+    product says whether they are buying or selling, and that fixes `seller_id`.
+    `sold` is a flag on the conversation: it never touches catalogue stock.
+    """
+
+    __tablename__ = "conversation_products"
+
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), primary_key=True
+    )
+    product_slug: Mapped[str] = mapped_column(String(120), nullable=False)
+    seller_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    sold: Mapped[bool] = mapped_column(_Boolean, nullable=False, default=False)

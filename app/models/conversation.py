@@ -78,6 +78,9 @@ def pair_key(user_a_id: uuid.UUID, user_b_id: uuid.UUID) -> str:
     return ":".join(sorted((str(user_a_id), str(user_b_id))))
 
 
+from sqlalchemy import Integer as _Integer  # noqa: E402
+
+
 class ConversationStatus(str):
     """Not an Enum on purpose — the column is a plain String(20), so adding a
     status needs no migration. Same reasoning as MediaKind (app/models/media.py)
@@ -108,6 +111,7 @@ class MessageKind(str):
     IMAGE = "image"
     SHARED_PRODUCT = "shared_product"
     SHARED_PROFILE = "shared_profile"
+    OFFER = "offer"
 
 
 class Conversation(Base, UUIDPrimaryKeyMixin, PublicIdMixin, TimestampMixin):
@@ -270,6 +274,11 @@ class Message(Base, UUIDPrimaryKeyMixin, PublicIdMixin, TimestampMixin, SoftDele
     # literal in the templates, not a `products` table. The slug is what
     # /product/{slug} routes on, so it keeps working when the table lands.
     shared_product_slug: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+    # Price offers (migration 0012): only kind == 'offer' rows use these.
+    offer_price: Mapped[int | None] = mapped_column(_Integer, nullable=True)
+    offer_listed: Mapped[int | None] = mapped_column(_Integer, nullable=True)
+    offer_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # A real FK, so a shared profile card cannot outlive the account it points
     # at. SET NULL and the template falls back to "This account is no longer

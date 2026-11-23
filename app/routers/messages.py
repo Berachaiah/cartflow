@@ -618,3 +618,108 @@ async def delete_wallpaper(
     current_user: User = Depends(get_current_user),
 ):
     return await extras_service.clear_wallpaper(db, viewer=current_user, scope=scope, conversation=conversation)
+
+
+# --- pinned product and offers (migration 0012) ---------------------------
+from app.services import offers as offers_service
+
+
+class _ProductBody(_BaseModel):
+    slug: str
+    role: _Literal["seller", "buyer"] = "buyer"
+
+
+class _SoldBody(_BaseModel):
+    sold: bool
+
+
+class _OfferBody(_BaseModel):
+    price: int
+
+
+class _RespondBody(_BaseModel):
+    action: _Literal["accept", "decline", "counter", "withdraw"]
+    price: int | None = None
+
+
+@router.get("/catalog/products")
+async def catalog_products(current_user: User = Depends(get_current_user)):
+    return {"items": offers_service.catalog_items()}
+
+
+@router.get("/{public_id}/deal")
+async def get_deal(
+    public_id: _uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await offers_service.get_deal(db, viewer=current_user, public_id=public_id)
+
+
+@router.put("/{public_id}/product")
+async def put_product(
+    public_id: _uuid.UUID,
+    body: _ProductBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    payload, party = await offers_service.set_product(
+        db, viewer=current_user, public_id=public_id, slug=body.slug, role=body.role
+    )
+    await realtime.publish(party, {"type": "deal", "conversation": str(public_id)})
+    return payload
+
+
+@router.delete("/{public_id}/product")
+async def delete_product(
+    public_id: _uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    payload, party = await offers_service.clear_product(db, viewer=current_user, public_id=public_id)
+    await realtime.publish(party, {"type": "deal", "conversation": str(public_id)})
+    return payload
+
+
+@router.post("/{public_id}/product/sold")
+async def post_sold(
+    public_id: _uuid.UUID,
+    body: _SoldBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    payload, party = await offers_service.set_sold(
+        db, viewer=current_user, public_id=public_id, sold=body.sold
+    )
+    await realtime.publish(party, {"type": "deal", "conversation": str(public_id)})
+    return payload
+
+
+@router.post("/{public_id}/offers")
+async def post_offer(
+    public_id: _uuid.UUID,
+    body: _OfferBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    payload, party = await offers_service.make_offer(
+        db, viewer=current_user, public_id=public_id, price=body.price
+    )
+    await realtime.publish(party, {"type": "deal", "conversation": str(public_id)})
+    return payload
+
+
+@router.post("/{public_id}/offers/{message_id}")
+async def post_offer_response(
+    public_id: _uuid.UUID,
+    message_id: _uuid.UUID,
+    body: _RespondBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    payload, party = await offers_service.respond(
+        db, viewer=current_user, public_id=public_id, message_public_id=message_id,
+        action=body.action, price=body.price,
+    )
+    await realtime.publish(party, {"type": "deal", "conversation": str(public_id)})
+    return payload

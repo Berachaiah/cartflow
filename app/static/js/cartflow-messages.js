@@ -10,6 +10,7 @@
   let inbox = {items: [], unread_conversations: 0, pending_requests: 0}, tab = 'all', q = '', active = null, thread = null;
   let online = new Set(), typingUntil = 0, lastTyping = 0, ws = null, pending = null, infoOpen = false, infoTab = 'media';
   let pins = {list: [], ids: new Set(), max: 5};
+  let deal = {product: null};
   let wp = {kind: 'preset', preset: 'default', image_url: null, focus_x: .5, focus_y: .5, dim: 0, scope: 'none'};
   let search = {on: false, q: '', hits: 0, i: 0};
 
@@ -45,11 +46,18 @@
 
   /* ---------- fit to the screen ---------- */
   function fit() {
-    const lg = matchMedia('(min-width:1024px)').matches, p = root.parentElement, cs = getComputedStyle(p);
-    root.style.margin = `-${cs.paddingTop} -${cs.paddingRight} -${cs.paddingBottom} -${cs.paddingLeft}`;
+    const lg = matchMedia('(min-width:1024px)').matches, inset = lg ? 12 : 0, main = root.closest('main');
+    let t = 0, r = 0, bt = 0, l = 0;
+    for (let el = root.parentElement; el; el = el.parentElement) {
+      const cs = getComputedStyle(el);
+      t += parseFloat(cs.paddingTop) || 0; r += parseFloat(cs.paddingRight) || 0;
+      bt += parseFloat(cs.paddingBottom) || 0; l += parseFloat(cs.paddingLeft) || 0;
+      if (el === main) break;
+    }
+    root.style.margin = `${inset - t}px ${inset - r}px ${inset - bt}px ${inset - l}px`;
     const top = root.getBoundingClientRect().top; let bottom = 0;
-    if (!lg) for (const n of document.querySelectorAll('nav,footer')) { const r = n.getBoundingClientRect(); if (getComputedStyle(n).position === 'fixed' && r.top > innerHeight / 2 && r.height > 0) bottom = Math.max(bottom, innerHeight - r.top); }
-    shell.style.height = Math.max(320, innerHeight - top - bottom) + 'px';
+    if (!lg) for (const n of document.querySelectorAll('nav,footer')) { const q = n.getBoundingClientRect(); if (getComputedStyle(n).position === 'fixed' && q.top > innerHeight / 2 && q.height > 0) bottom = Math.max(bottom, innerHeight - q.top); }
+    shell.style.height = Math.max(320, innerHeight - top - bottom - inset) + 'px';
   }
   addEventListener('resize', fit);
 
@@ -113,7 +121,7 @@
 
   /* ---------- thread ---------- */
   async function openThread(handle) {
-    active = handle; thread = null; pins = {list: [], ids: new Set(), max: 5}; wp = {kind: 'preset', preset: 'default', image_url: null, focus_x: .5, focus_y: .5, dim: 0, scope: 'none'};
+    active = handle; thread = null; deal = {product: null}; renderBar(); pins = {list: [], ids: new Set(), max: 5}; wp = {kind: 'preset', preset: 'default', image_url: null, focus_x: .5, focus_y: .5, dim: 0, scope: 'none'};
     search = {on: false, q: '', hits: 0, i: 0}; $('cm-sbar').hidden = true; clearPending(); closeMenu(); infoTab = 'media';
     root.classList.add('open'); $('cm-blank').hidden = true; $('cm-view').hidden = false; note.textContent = '';
     msgsEl.replaceChildren(h('div', 'cm-empty', 'Loading…')); applyWp();
@@ -123,7 +131,7 @@
   async function loadThread(handle, first) {
     try {
       const t = await api('/api/messages/threads/' + enc(handle)); if (active !== handle) return;
-      thread = t; renderThread(first); if (first) loadWallpaper(); loadPins(); if (infoOpen) renderInfo();
+      thread = t; renderThread(first); if (first) loadWallpaper(); loadPins(); loadDeal(); if (infoOpen) renderInfo();
       if (t.unread > 0 && t.conversation) api(`/api/messages/${t.conversation.public_id}/read`, 'POST').then(loadInbox).catch(() => {});
     } catch (e) { if (active === handle) msgsEl.replaceChildren(h('div', 'cm-err', `Couldn't open this chat (${e.status || 'network'}): ${e.message}`)); }
   }
@@ -132,7 +140,7 @@
     let tm; el.addEventListener('contextmenu', e => { e.preventDefault(); msgMenu(m, el); });
     el.addEventListener('touchstart', () => { tm = setTimeout(() => msgMenu(m, el), 480); }, {passive: true});
     ['touchend', 'touchmove', 'touchcancel'].forEach(ev => el.addEventListener(ev, () => clearTimeout(tm), {passive: true}));
-    el.addEventListener('click', e => { if (e.target.closest('a,img')) return; e.stopPropagation(); msgMenu(m, el); });
+    el.addEventListener('click', e => { if (e.target.closest('a,img,button')) return; e.stopPropagation(); msgMenu(m, el); });
   }
   function renderThread(first) {
     const t = thread, u = t.other, typing = Date.now() < typingUntil, live = online.has(u.username) || t.is_active_now, msgs = t.messages || [];
@@ -149,13 +157,13 @@
       const d = new Date(m.sent_at), dk = d.toDateString();
       if (dk !== prevDay) { nodes.push(h('div', 'cm-day', dayLabel(d))); prevDay = dk; }
       const nx = msgs[i + 1], tail = !nx || nx.is_mine !== m.is_mine || new Date(nx.sent_at).toDateString() !== dk;
-      const ph = photoOf(m), pinned = pins.ids.has(m.public_id), row = h('div', 'cm-m ' + (m.is_mine ? 'me' : 'th')), b = h('div', 'cm-b' + (tail ? ' tail' : '') + (ph ? ' img' : '') + (pinned ? ' pinned' : ''));
+      const ph = photoOf(m), pinned = pins.ids.has(m.public_id), row = h('div', 'cm-m ' + (m.is_mine ? 'me' : 'th')), b = h('div', 'cm-b' + (tail ? ' tail' : '') + (ph ? ' img' : '') + (pinned ? ' pinned' : '') + (m.kind === 'offer' ? ' offer' : ''));
       row.dataset.id = m.public_id;
       if (pinned) { const pb = h('span', 'cm-pinb'); pb.append(ico('push_pin')); b.append(pb); }
       if (ph) { const im = h('img', 'cm-img'); im.src = ph; im.alt = 'Photo'; im.loading = 'lazy'; im.onclick = () => lightbox(ph); b.append(im); }
       if (m.kind === 'shared_product' && m.shared_product_slug) { const a = h('a', 'cm-share'); a.href = '/product/' + enc(m.shared_product_slug); a.append(ico('sell'), h('span', '', 'Shared a product')); b.append(a); }
       if (m.kind === 'shared_profile') { const hd = m.shared_user && m.shared_user.username; if (hd) { const a = h('a', 'cm-share'); a.href = '/@' + hd; a.append(ico('person'), h('span', '', 'Shared @' + hd)); b.append(a); } }
-      if (m.body) { const s = h('span', 'cm-t'); s.append(...hl(m.body)); b.append(s); }
+      if (m.kind === 'offer') b.append(offerCard(m)); else if (m.body) { const s = h('span', 'cm-t'); s.append(...hl(m.body)); b.append(s); }
       const ti = h('span', 'cm-time', tfmt(d)); ti.title = m.exact_time || ''; b.append(ti); bindMsg(b, m); row.append(b); nodes.push(row);
     });
     if (!msgs.length) nodes.push(h('div', 'cm-empty', 'Say hello to ' + nameOf(u)));
@@ -170,7 +178,7 @@
   }
   msgsEl.addEventListener('scroll', () => { $('cm-downbtn').hidden = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 220; });
   $('cm-downbtn').onclick = () => msgsEl.scrollTo({top: msgsEl.scrollHeight, behavior: 'smooth'});
-  function closeThread() { active = null; thread = null; infoOpen = false; info.hidden = true; closeMenu(); root.classList.remove('open'); $('cm-view').hidden = true; $('cm-blank').hidden = false; history.replaceState(null, '', '/messages'); renderRows(); }
+  function closeThread() { active = null; thread = null; deal = {product: null}; renderBar(); infoOpen = false; info.hidden = true; closeMenu(); root.classList.remove('open'); $('cm-view').hidden = true; $('cm-blank').hidden = false; history.replaceState(null, '', '/messages'); renderRows(); }
   $('cm-back').onclick = closeThread;
 
   /* ---------- search in chat ---------- */
@@ -238,6 +246,7 @@
     const a2 = h('a', 'cm-act'); a2.href = '/@' + u.username; const b2 = h('span', 'cm-ib'); b2.append(ico('person')); a2.append(b2, 'Profile'); acts.append(a1, a2); nodes.push(acts);
     const w = btn('cm-set'); const sw = h('span', 'cm-sw'); paintWp(sw, wp); const label = wp.kind === 'photo' ? 'Photo' : (WPS.find(z => z[0] === wp.preset) || WPS[0])[1];
     w.append(sw, h('span', 'sp', 'Chat wallpaper'), h('small', '', label), ico('chevron_right')); w.onclick = openWallpaper; nodes.push(w);
+    if (t.conversation) { const pr = btn('cm-set'); pr.append(ico('sell'), h('span', 'sp', 'Pinned product'), h('small', '', deal.product ? deal.product.name : 'None'), ico('chevron_right')); pr.onclick = openProductPicker; nodes.push(pr); }
     const imgs = (t.messages || []).map(photoOf).filter(Boolean);
     const tabs = h('div', 'cm-itabs'); [['media', `Media${imgs.length ? ' ' + imgs.length : ''}`], ['pinned', `Pinned ${pins.list.length}/${pins.max}`]].forEach(([k, l]) => { const b = btn(infoTab === k ? 'on' : '', ''); b.textContent = l; b.onclick = () => { infoTab = k; renderInfo(); }; tabs.append(b); }); nodes.push(tabs);
     if (infoTab === 'pinned') nodes.push(pinnedList(u));
@@ -324,6 +333,113 @@
         img.src = url; body.replaceChildren(sw, chips, tip, row);
       }
       main();
+    });
+  }
+
+  /* ---------- pinned product + offers ---------- */
+  const naira = n => '₦' + Number(n || 0).toLocaleString('en-NG');
+  const bar = h('div', 'cm-bar'); bar.hidden = true; wrapEl.parentElement.insertBefore(bar, wrapEl);
+  const OFFER_LABEL = {accepted: 'Accepted', countered: 'Countered', declined: 'Declined', withdrawn: 'Cancelled'};
+  const dealUrl = p => `/api/messages/${thread.conversation.public_id}${p}`;
+
+  async function loadDeal() {
+    const c = thread && thread.conversation;
+    if (!c) { deal = {product: null}; renderBar(); return; }
+    try {
+      const d = await api(`/api/messages/${c.public_id}/deal`);
+      if (!thread || !thread.conversation || thread.conversation.public_id !== c.public_id) return;
+      deal = d;
+    } catch { return; }
+    renderBar(); if (infoOpen) renderInfo();
+  }
+
+  function priceSheet(title, listed, label, onSend) {
+    sheet(title, (s, close) => {
+      const hint = h('div', 'cm-sub', 'Listed at ' + naira(listed)); hint.style.cssText = 'white-space:normal;margin:0 0 10px';
+      const inp = h('input'); inp.type = 'number'; inp.inputMode = 'numeric'; inp.min = 1; inp.max = listed; inp.placeholder = 'Amount in ₦'; inp.autocomplete = 'off';
+      const err = h('div', 'cm-note'), go = btn('cm-btn p'); go.textContent = label; go.style.marginTop = '12px';
+      go.onclick = async () => {
+        const v = Math.round(Number(inp.value));
+        if (!(v > 0)) { err.textContent = 'Enter an amount above ₦0.'; return; }
+        if (v > listed) { err.textContent = `An offer can't be above the listed ${naira(listed)}.`; return; }
+        go.disabled = true; err.textContent = '';
+        try { await onSend(v); close(); } catch (e) { err.textContent = e.message; go.disabled = false; }
+      };
+      s.append(hint, inp, err, go); setTimeout(() => inp.focus(), 60);
+    });
+  }
+
+  function renderBar() {
+    const p = deal.product;
+    if (!p || !thread || !thread.conversation) { bar.hidden = true; bar.replaceChildren(); return; }
+    bar.hidden = false;
+    const a = h('a', 'cm-bp'); a.href = '/product/' + enc(p.slug);
+    const im = h('span', 'cm-bi'); if (p.image_url) { const i = h('img'); i.src = p.image_url; i.alt = ''; im.append(i); } else im.append(ico('sell'));
+    const tx = h('span', 'cm-bt'); tx.append(h('b', '', p.name), h('small', '', deal.sold ? 'Sold' : [p.price_label, p.stock_label].filter(Boolean).join(' · ')));
+    a.append(im, tx);
+    const nodes = [a];
+    if (deal.seller_is_me) {
+      const b = btn('cm-bb' + (deal.sold ? '' : ' p')); b.textContent = deal.sold ? 'Mark as available' : 'Mark as sold';
+      b.onclick = async () => { b.disabled = true; try { deal = await api(dealUrl('/product/sold'), 'POST', {sold: !deal.sold}); renderBar(); loadThread(active, false); } catch (e) { toast(e.message); b.disabled = false; } };
+      nodes.push(b);
+    } else if (deal.can_offer) {
+      const b = btn('cm-bb o'); b.append(ico('sell'), h('span', '', 'Make an offer'));
+      b.onclick = () => priceSheet('Make an offer', p.price, 'Send offer', async v => { deal = await api(dealUrl('/offers'), 'POST', {price: v}); renderBar(); await loadThread(active, false); loadInbox(); });
+      nodes.push(b);
+    } else {
+      const t = deal.sold ? 'Sold' : deal.pending_offer ? 'Offer pending' : deal.accepted_offer ? 'Offer accepted' : !p.in_stock ? 'Out of stock' : '';
+      if (t) nodes.push(h('span', 'cm-bchip', t));
+    }
+    bar.replaceChildren(...nodes);
+  }
+
+  async function offerCall(m, action, price) {
+    await api(dealUrl('/offers/' + m.public_id), 'POST', {action, price: price ?? null});
+    await loadThread(active, false); loadInbox();
+  }
+  function offerCard(m) {
+    const st = m.offer_status || 'pending', c = h('div', 'cm-offer'), top = h('div', 'cm-ot'), ic = h('span', 'cm-oi'); ic.append(ico('sell'));
+    top.append(ic, h('span', 'cm-ol', m.is_mine ? 'You offered' : 'Offer'));
+    const foot = h('div', 'cm-of'); foot.append(h('span', 'cm-os ' + st, st === 'pending' ? (m.is_mine ? 'Waiting for reply' : 'Needs your reply') : (OFFER_LABEL[st] || st)));
+    c.append(top, h('div', 'cm-op', naira(m.offer_price)), h('div', 'cm-ls', 'Listed at ' + naira(m.offer_listed)), foot);
+    if (st === 'pending') {
+      const row = h('div', 'cm-oa');
+      const mk = (label, cls, fn) => { const b = btn('cm-ob ' + cls); b.textContent = label; b.onclick = async e => { e.stopPropagation(); b.disabled = true; try { await fn(); } catch (err) { toast(err.message); b.disabled = false; } }; row.append(b); };
+      if (m.is_mine) mk('Cancel offer', '', () => offerCall(m, 'withdraw'));
+      else {
+        mk('Accept', 'p', () => offerCall(m, 'accept'));
+        const cb = btn('cm-ob'); cb.textContent = 'Counter'; cb.onclick = e => { e.stopPropagation(); priceSheet('Counter offer', m.offer_listed, 'Send counter', v => offerCall(m, 'counter', v)); }; row.append(cb);
+        mk('Decline', 'd', () => offerCall(m, 'decline'));
+      }
+      c.append(row);
+    }
+    return c;
+  }
+
+  async function openProductPicker() {
+    if (!thread || !thread.conversation) { toast('Send a first message to pin a product to this chat'); return; }
+    let role = 'buyer';
+    sheet('Pinned product', async (s, close) => {
+      if (!deal.product) {
+        const seg = h('div', 'cm-seg');
+        [['buyer', "I'm buying"], ['seller', "I'm selling"]].forEach(([k, l]) => { const b = btn(k === role ? 'on' : ''); b.textContent = l; b.onclick = () => { role = k; seg.querySelectorAll('button').forEach(z => z.classList.toggle('on', z === b)); }; seg.append(b); });
+        s.append(seg);
+      } else {
+        const rm = btn('cm-btn'); rm.textContent = 'Remove pinned product'; rm.style.marginBottom = '10px';
+        rm.onclick = async () => { try { deal = await api(dealUrl('/product'), 'DELETE'); renderBar(); if (infoOpen) renderInfo(); close(); } catch (e) { toast(e.message); } };
+        s.append(rm);
+      }
+      const box = h('div'); box.append(h('div', 'cm-empty', 'Loading products…')); s.append(box);
+      try {
+        const d = await api('/api/messages/catalog/products');
+        box.replaceChildren(...d.items.map(p => {
+          const b = btn('cm-row'), im = h('span', 'cm-bi'), m = h('div', 'cm-rm');
+          if (p.image_url) { const i = h('img'); i.src = p.image_url; i.alt = ''; im.append(i); } else im.append(ico('sell'));
+          m.append(h('div', 'cm-nm', p.name), h('div', 'cm-sub', p.price_label + ' · ' + p.stock_label)); b.append(im, m);
+          b.onclick = async () => { try { deal = await api(dealUrl('/product'), 'PUT', {slug: p.slug, role}); renderBar(); if (infoOpen) renderInfo(); close(); } catch (e) { toast(e.message); } };
+          return b;
+        }));
+      } catch (e) { box.replaceChildren(h('div', 'cm-err', e.message)); }
     });
   }
 
