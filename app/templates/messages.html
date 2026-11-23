@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "partials/ui.html" import page_head %}
 {% block content %}
 <link rel="stylesheet" href="/static/css/cartflow-messages.css">
 <div class="cm" id="cm" data-me="{{ current_user.username }}" data-open="{{ open_handle or '' }}" data-share-slug="{{ share_slug or '' }}" data-share-user="{{ share_user or '' }}">
@@ -16,8 +17,15 @@
     <section class="cm-thread" aria-label="Conversation">
       <div class="cm-blank" id="cm-blank">
         <div class="big"><span class="material-symbols-outlined" style="font-size:40px;opacity:.7" aria-hidden="true">forum</span></div>
-        <h2 style="margin:0 0 6px;font-size:20px;font-weight:800">Your messages</h2>
-        <p style="margin:0 0 16px;opacity:.65;font-size:14px">Pick a conversation, or start one with someone you follow.</p>
+        {{ page_head("Your messages") }}
+        <p style="margin:6px 0 12px;opacity:.65;font-size:14px">Pick a conversation, or start one with someone you follow.</p>
+        {# Doc 10 §6, the half that changes what someone types. This is static
+           copy, not a conversation, so it stays server-rendered — ONE RENDERER
+           is about rows and bubbles, and a rule rendered by Jinja cannot
+           disagree with an API payload. It lives in the blank pane because
+           that is what a first-time visitor sees, and reading it before you
+           message someone is the whole point. #}
+        <p style="margin:0 0 16px;opacity:.6;font-size:12.5px;line-height:1.5">A first message to someone you don't follow goes to their requests until they reply. A first message someone sends you lands in Requests, where their one message waits here until you reply or delete it.</p>
         <button class="cm-ib p" id="cm-new2" type="button" style="width:auto;padding:0 20px;border-radius:22px;font-weight:700;gap:8px"><span class="material-symbols-outlined" aria-hidden="true" style="font-size:19px">edit_square</span>New message</button>
       </div>
       <div class="cm-view" id="cm-view" hidden>

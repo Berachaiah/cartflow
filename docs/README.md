@@ -57,11 +57,13 @@ table above, because no product chapter owns them:
 | User reports / moderation mail | `POST /api/users/reports/{username}` | **Done.** `reports` table plus an emailed copy to `REPORTS_EMAIL` |
 | Media / Cloudinary | `/api/users/me/avatar`, message photos | **Done when configured.** `media` table; upload endpoints return 503 and the UI says so until all three Cloudinary keys are set |
 
-### In flight, not yet committed
+### In flight
 
-`app/services/offers.py` and `app/database/migrations/versions/0012_offers_deal.py`
-are untracked work in progress on messaging offers. Treat them as **not built**
-until they are committed and covered by tests.
+Chat pins, wallpapers, in-chat product cards and offers (`app/services/offers.py`,
+`app/models/message_extras.py`, `0011_message_extras`, `0012_offers_deal`) are
+committed as a `wip:` commit so they cannot be lost, but treat them as **not
+built**: `0012` has not been applied to Supabase and there are no tests of their
+own. The messaging tests cover the conversations they hang off, not these.
 
 ### Operational gaps that are not feature gaps
 

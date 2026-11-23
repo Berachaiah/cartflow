@@ -33,6 +33,7 @@ session is the thing under test on a redirect.
 
 import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from httpx import AsyncClient
@@ -360,7 +361,7 @@ async def test_messages_renders_no_conversation_server_side(client: AsyncClient)
     assert r.status_code == 200, r.text
     body = _visible(r.text)
 
-    assert 'data-inbox-rows class="space-y-0.5"></div>' in body, (
+    assert 'id="cm-rows"></div>' in body, (
         "the rows container arrived with something in it — the inbox is server-rendered now, "
         "and there are two renderers for one row"
     )
@@ -441,12 +442,27 @@ async def test_messages_offers_the_controls_it_can_now_honour(client: AsyncClien
         "the inbox lost its search field. §20 search is real — `?q=` on GET /api/messages — so "
         "hiding the control now understates what the page does"
     )
+    # The tabs and the compose buttons are shell containers now: the tab strip is
+    # built by the renderer from the unread/request counts that only arrive over
+    # the API, so the server ships the mount point and the renderer supplies the
+    # three filters. Both halves are asserted — a mount point with no renderer
+    # behind it, or a renderer with nowhere to mount, are the two ways this
+    # breaks.
+    assert 'id="cm-tabs"' in r.text, "the inbox lost its tab strip mount point"
+    renderer = (
+        Path(__file__).resolve().parent.parent
+        / "app" / "static" / "js" / "cartflow-messages.js"
+    ).read_text(encoding="utf-8")
     for tab in ("all", "unread", "requests"):
-        assert f'data-filter="{tab}"' in r.text, f"the {tab!r} tab is gone"
-    assert "data-compose-open" in r.text, (
-        "nothing on the page starts a new conversation, so the only way in is somebody else's "
-        "profile"
-    )
+        assert f"'{tab}'" in renderer, (
+            f"the {tab!r} tab is gone from cartflow-messages.js — the strip renders whatever "
+            "keys the renderer knows, so a dropped key is a silently missing filter"
+        )
+    for compose in ('id="cm-new"', 'id="cm-new2"'):
+        assert compose in r.text, (
+            "nothing on the page starts a new conversation, so the only way in is somebody "
+            "else's profile"
+        )
     for stale in ("isn&#39;t live yet", "no message is sitting unread", "See your activity"):
         assert stale not in body, (
             f"/messages still says {stale!r}. Messaging shipped — this page is the feature now, "
@@ -462,15 +478,37 @@ async def test_messages_ships_the_reasons_the_api_validates(client: AsyncClient)
     lists — and a reason the user can pick but the API rejects is a 422 at the end
     of a form somebody filled in about being harassed.
     """
+    import json
+    import re
+
     from app.models.report import REPORT_REASONS
 
     await _sign_in(client)
     r = await client.get("/messages")
-    for reason in REPORT_REASONS:
-        assert f'value="{reason}"' in r.text, (
-            f"the report sheet cannot report {reason!r}, which the API accepts — the template "
-            "has its own list again"
-        )
+
+    # The reasons ship as one JSON block the renderer turns into radios, not as
+    # `value=` attributes in server HTML (the sheet is built on demand). Parsing
+    # the payload and comparing it to the server's own list is a stronger check
+    # than grepping for attributes was: order and content both have to match.
+    m = re.search(
+        r'<script type="application/json" id="cm-reasons">(.*?)</script>', r.text, re.S
+    )
+    assert m, (
+        "the page no longer ships REPORT_REASONS to the client, so the report sheet has to "
+        "carry its own copy of the list"
+    )
+    # Shipped as (value, label) pairs: the value is the API's enum member, the
+    # label is what the radio reads. Compare the values exactly and refuse a pair
+    # with no label — a blank radio is unusable in the one form where the person
+    # filling it in is already having a bad day.
+    shipped = json.loads(m.group(1))
+    assert [value for value, _ in shipped] == list(REPORT_REASONS), (
+        "the reasons the sheet offers differ from the ones the API validates — a reason a user "
+        "can pick but the API rejects is a 422 at the end of a form about being harassed"
+    )
+    assert all(label.strip() for _, label in shipped), (
+        "a report reason shipped without a label, so its radio renders blank"
+    )
 
 
 # --- /messages/@{handle}: one conversation, deep-linked ------------------
@@ -484,7 +522,7 @@ async def test_a_deep_linked_thread_renders_for_a_stranger(client: AsyncClient, 
 
     r = await client.get("/messages/@chidi")
     assert r.status_code == 200, r.text
-    assert 'data-open-handle="chidi"' in r.text, (
+    assert 'data-open="chidi"' in r.text, (
         "the handle never reached the client, so the page opens the inbox and forgets which "
         "conversation the URL asked for"
     )
