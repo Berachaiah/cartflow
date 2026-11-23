@@ -62,17 +62,21 @@ table above, because no product chapter owns them:
 Chat pins, wallpapers, in-chat product cards and offers (`app/services/offers.py`,
 `app/models/message_extras.py`, `0011_message_extras`, `0012_offers_deal`) are
 committed as a `wip:` commit so they cannot be lost, but treat them as **not
-built**: `0012` has not been applied to Supabase and there are no tests of their
-own. The messaging tests cover the conversations they hang off, not these.
+built**: there are no tests of their own. Their migrations are applied — the
+Supabase database reported `0012_offers_deal` as its head on 2026-11-23. The
+messaging tests cover the conversations they hang off, not these.
 
 ### Operational gaps that are not feature gaps
 
 Listed in full in `REMAINING-WORK.md`; repeated here because they decide whether
 "Done" survives contact with production:
 
-1. Migrations `0010`–`0012` are not applied to the Supabase database. The test
-   suite builds its schema from `create_all`, so a green run says nothing about
-   production.
+1. Migration `0013_products` is not applied to the Supabase database. Verified
+   against the live DB on 2026-11-23: it reports `0012_offers_deal` as its head
+   and has no `products` table, so every catalogue query against production will
+   fail until `alembic upgrade head` runs there. (`0010`–`0012` are applied — the
+   note that said otherwise was stale.) The test suite builds its schema from
+   `create_all`, so a green run says nothing about production.
 2. The WebSocket fan-out is a per-process dict. With more than one worker, a
    message sent on worker A does not reach a socket held by worker B — it fails
    quietly, and reconnect-and-refetch hides it.
