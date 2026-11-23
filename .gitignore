@@ -27,6 +27,10 @@ fresh_cookies.txt
 
 # --- Editor / OS cruft ------------------------------------------------
 .DS_Store
+# AppleDouble resource-fork stubs (`._foo.py`) — Finder metadata, not content.
+# 95 of them were copied into this tree with the repo; ignored so a stray one
+# can never be committed, and so `git status` stays readable.
+._*
 
 # --- Node (build-time only) -------------------------------------------
 # Tailwind's compiler and its plugins. Build-time only — nothing here is

@@ -1,0 +1,58 @@
+# Line endings.
+#
+# This repo was developed on macOS, where the shell scripts are executable and
+# every file is LF. It has since been opened on Windows with `core.autocrlf=true`,
+# which made git warn about all ~270 files ("LF will be replaced by CRLF") and
+# would have rewritten every file's line endings on the next checkout — turning a
+# one-line edit into a whole-file diff.
+#
+# `eol=lf` pins the working copy to LF on every platform, so the checked-out bytes
+# match the indexed bytes and `git diff` shows only real changes. Windows editors
+# handle LF fine; nothing in this project needs CRLF.
+* text=auto eol=lf
+
+# Shell scripts must keep LF even if someone changes the rules above — a CRLF
+# shebang script fails on Linux/macOS with a confusing "bad interpreter" error.
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Source and docs are text. Listed explicitly so a future `binary` rule can't
+# accidentally swallow them.
+*.py   text
+*.html text
+*.css  text
+*.js   text
+*.md   text
+*.json text
+
+# CSV data exports are NOT normalized.
+#
+# The five `data/*.csv` files are machine-generated exports that were committed
+# with CRLF bytes, and they are the reference data the university seed script
+# reads — the bytes are the artifact, not the source. Letting `* text=auto eol=lf`
+# reach them made all five show as modified with ~1,160 changed lines that
+# changed no value at all, and committing that would bury real work in noise.
+# `-text` means "do not convert"; diffs still work, so a genuine data change is
+# still reviewable.
+*.csv -text
+*.ini  text
+*.txt  text
+*.mako text
+
+# Binaries: never diff, never convert.
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.svg   text
+*.db    binary
+*.sqlite binary
+*.docx  binary
+*.pdf   binary
+*.zip   binary
