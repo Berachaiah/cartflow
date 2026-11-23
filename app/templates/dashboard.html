@@ -258,13 +258,18 @@
                 </p>
             </div>
 
-            {# Doc §5's ten metrics, in its order. Only New Followers is live. #}
+            {# Doc §5's ten metrics, in its order. Live now: Followers (the follow
+               graph), Active products and Products sold (the products table).
+               The rest need orders, payments and events, so they stay at zero and
+               the note above says so rather than dressing a zero up as a number. #}
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
                 {{ metric("Today's revenue", "₦0", "No sales yet today.", "payments") }}
                 {{ metric("Pending orders", "0", "Nothing waiting on you.", "pending_actions") }}
                 {{ metric("Pending escrow", "₦0", "Held until delivery is confirmed.", "lock_clock") }}
-                {{ metric("Products sold", "0", "All time.", "shopping_bag") }}
-                {{ metric("Active products", "0", "Nothing listed yet.", "sell") }}
+                {# `sold` is the seller's own stock record, NOT CartFlow sales: there
+                   are no orders to compute it from yet. The caption says which. #}
+                {{ metric("Products sold", catalog_stats.sold if catalog_stats else 0, "Your own stock record — order tracking isn't built.", "shopping_bag") }}
+                {{ metric("Active products", catalog_stats.active if catalog_stats else 0, (catalog_stats.stock ~ " units in stock.") if catalog_stats else "Nothing listed yet.", "sell", live=catalog_stats is not none) }}
                 {{ metric("Active events", "0", "No events on sale.", "event") }}
                 {{ metric("Followers", stats.followers, "People following your account.", "group", live=true) }}
                 {{ metric("Unread messages", "0", "Messaging isn't built yet.", "chat_bubble") }}
@@ -275,12 +280,27 @@
             <div class="grid md:grid-cols-2 gap-3">
                 <div class="glass panel panel-pad">
                     <h3 class="text-[13px] font-semibold flex items-center gap-2 flex-wrap">
-                        Low stock alerts {{ soon("Needs the inventory table (doc 16 §30)") }}
+                        Low stock alerts
+                        {% if not (catalog_stats and catalog_stats.low_stock) %}{{ soon("Nothing under 5 units") }}{% endif %}
                     </h3>
+                    {% if catalog_stats and catalog_stats.low_stock %}
+                    {# Real rows from the products table. The threshold is a flat 5
+                       until a per-seller setting exists (doc 16 §9 wants a
+                       configurable one); showing the real number beats waiting. #}
+                    <ul class="mt-2 space-y-1.5">
+                        {% for item in catalog_stats.low_stock %}
+                        <li class="flex items-baseline justify-between gap-2 text-[12.5px]">
+                            <a class="truncate underline-offset-2 hover:underline" href="/product/{{ item.slug }}">{{ item.name }}</a>
+                            <span class="shrink-0 font-semibold">Only {{ item.stock }} left</span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
                     <p class="caption-text mt-2 leading-relaxed">
-                        Once you're listing products, anything that drops below your
-                        threshold shows up here — <span class="font-semibold">Only 3 left</span> — and as a notification.
+                        List a product and anything that drops below five units shows
+                        up here — <span class="font-semibold">Only 3 left</span> — as you sell it.
                     </p>
+                    {% endif %}
                 </div>
                 <div class="glass panel panel-pad">
                     <h3 class="text-[13px] font-semibold flex items-center gap-2 flex-wrap">

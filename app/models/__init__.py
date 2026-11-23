@@ -14,6 +14,8 @@ from app.models.organization import (  # noqa: F401
     OrganizationStatus,
     OrganizationType,
 )
+# After `organization`: products.organization_id points at it.
+from app.models.product import Product, ProductStatus  # noqa: F401
 from app.models.organization_request import (  # noqa: F401
     OrganizationRequest,
     RequestStatus,

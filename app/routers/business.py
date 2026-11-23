@@ -1,8 +1,12 @@
 """
 Business Hub endpoints — the seller's own business.
 
-    GET    /api/business/profile   read the business you own
-    PATCH  /api/business/profile   edit name / state / pickup address
+    GET    /api/business/profile    read the business you own
+    PATCH  /api/business/profile    edit name / state / pickup address
+    GET    /api/business/products   list the shop's listings (drafts included)
+    POST   /api/business/products   create a listing
+    PATCH  /api/business/products/{slug}   edit a listing
+    DELETE /api/business/products/{slug}   retire a listing (soft delete)
 
 Doc 16 §31 lists nine endpoints (dashboard, analytics, orders, products,
 events, finance, location, status, pickups). Eight of them read or write tables
@@ -37,7 +41,14 @@ from app.schemas.organization import (
     BusinessProfileResponse,
     BusinessProfileUpdateRequest,
 )
+from app.schemas.product import (
+    ProductCreateRequest,
+    ProductListResponse,
+    ProductResponse,
+    ProductUpdateRequest,
+)
 from app.services import account as account_service
+from app.services import products as products_service
 
 router = APIRouter(prefix="/api/business", tags=["business"])
 
@@ -76,3 +87,73 @@ async def update_business_profile(
         message="Business details saved.",
         business=BusinessProfileOut.model_validate(org),
     )
+
+
+# --- Products (doc 12) -------------------------------------------------
+#
+# The catalogue's write side. Every route resolves the caller's shop with
+# `get_owned_business` and then looks the product up THROUGH that shop, so an
+# account with no business gets 404 and another seller's slug is indistinguishable
+# from a slug that does not exist — the difference is information about somebody
+# else's inventory.
+#
+# Signed out is 401 via `get_current_user` (strict), matching /profile: these
+# describe and mutate private rows.
+
+@router.get("/products", response_model=ProductListResponse)
+async def list_my_products(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """The shop's own listings, drafts included. The Shop page shows only active
+    ones, so this is the seller's complete inventory and the only view that can
+    see an unfinished listing."""
+    org = await account_service.get_owned_business(db, current_user)
+    items = await products_service.list_for_business(db, business=org)
+    return ProductListResponse(products=items, count=len(items))
+
+
+@router.post("/products", response_model=ProductResponse, status_code=201)
+async def create_my_product(
+    payload: ProductCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Create a listing. The slug is derived from the name and made unique —
+    never supplied by the caller, because it is the public URL."""
+    org = await account_service.get_owned_business(db, current_user)
+    product = await products_service.create_product(db, business=org, payload=payload)
+    return ProductResponse(message="Listing created.", product=product)
+
+
+@router.patch("/products/{slug}", response_model=ProductResponse)
+async def update_my_product(
+    slug: str,
+    payload: ProductUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Partial edit. `exclude_unset` inside the service is what lets the Hub send
+    only `{"stock": 0}` without that reading as "clear everything else"."""
+    org = await account_service.get_owned_business(db, current_user)
+    product = await products_service.update_product(
+        db, business=org, slug=slug, payload=payload
+    )
+    return ProductResponse(message="Listing saved.", product=product)
+
+
+@router.delete("/products/{slug}", response_model=ProductResponse)
+async def delete_my_product(
+    slug: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Retire a listing. A soft delete: the product stops appearing in the Shop
+    and its URL answers 404, but the row survives so a mistaken retirement does
+    not destroy the history of a link somebody shared.
+
+    Deliberately not 204: the Hub shows what happened, and a body saying which
+    listing was retired is more useful than an empty response."""
+    org = await account_service.get_owned_business(db, current_user)
+    await products_service.archive_product(db, business=org, slug=slug)
+    return ProductResponse(message="Listing removed.", product={"slug": slug})

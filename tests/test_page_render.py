@@ -22,12 +22,57 @@ Exercises the real ASGI app on in-memory SQLite (see conftest).
 """
 
 import re
+import uuid
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 from markupsafe import Markup
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.models.organization import Organization
+from app.models.product import Product
 from app.routers.pages import _caption_html
+
+
+@pytest_asyncio.fixture
+async def one_listing(engine):
+    """A single row in the catalogue.
+
+    The Shop grid is server-rendered from the `products` table now, so a render
+    test that asserts on a card needs a card to exist. One listing is enough:
+    the assertions below are about the page's controls and data attributes, not
+    about how many sellers signed up.
+    """
+    Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with Session() as session:
+        org = Organization(
+            official_name="RetroVibe Apparel",
+            short_name="RetroVibe Apparel",
+            slug=f"retrovibe-{uuid.uuid4().hex[:8]}",
+            country="Nigeria",
+            state="Lagos",
+            status="active",
+        )
+        session.add(org)
+        await session.flush()
+        session.add(
+            Product(
+                organization_id=org.id,
+                slug="campus-essential-hoodie",
+                name="Campus Essential Hoodie",
+                category="Fashion",
+                price=18500,
+                was_price=24000,
+                stock=12,
+                description="Heavyweight fleece hoodie cut for campus weather.",
+                image_url="https://example.com/hoodie.jpg",
+                image_alt="Folded grey hoodie",
+                popularity=96,
+            )
+        )
+        await session.commit()
+    return "campus-essential-hoodie"
 
 
 async def _signup_and_login(
@@ -123,11 +168,11 @@ async def test_inner_pages_show_brand_in_mobile_bar(client: AsyncClient):
 
 # --- shop ----------------------------------------------------------------
 
-async def test_shop_renders_catalogue_signed_out(client: AsyncClient):
+async def test_shop_renders_catalogue_signed_out(one_listing, client: AsyncClient):
     """Shop is browsable with no session — doc 12 §3's search, category chips,
-    grid and cart all render, and the catalogue is server-rendered rather than
-    fetched (there is no products table, so the cards ARE the source of truth
-    the client-side sort/filter/cart read from)."""
+    grid and cart all render, and the grid is server-rendered from the products
+    table rather than fetched (the cards ARE the source of truth the client-side
+    sort/filter/cart read from, so they have to be in the HTML)."""
     r = await client.get("/marketplace")
     assert r.status_code == 200, r.text
     body = r.text

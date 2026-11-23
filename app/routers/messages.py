@@ -643,8 +643,11 @@ class _RespondBody(_BaseModel):
 
 
 @router.get("/catalog/products")
-async def catalog_products(current_user: User = Depends(get_current_user)):
-    return {"items": offers_service.catalog_items()}
+async def catalog_products(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return {"items": await offers_service.catalog_items(db)}
 
 
 @router.get("/{public_id}/deal")

@@ -25,14 +25,85 @@ still render with it and link into this route rather than previewing in a sheet.
 Exercises the real ASGI app on in-memory SQLite (see conftest).
 """
 
-import pytest
-from httpx import AsyncClient
+import uuid
 
+import pytest
+import pytest_asyncio
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from app.models.organization import Organization
+from app.models.product import Product
 from app.services import catalog
 
-# A product that exists in every fixture below. Read from the catalogue rather
-# than typed as a literal so this file can't drift from the real slug set.
-KNOWN = catalog.list_products()[0]
+# THE CATALOGUE IS A TABLE NOW. These tests used to read the curated list in
+# app/services/catalog.py, which meant every assertion below was really about a
+# module constant. They now seed real rows and assert against those, so a product
+# page proving itself is proving it read the database.
+KNOWN = {
+    "slug": "campus-essential-hoodie",
+    "name": "Campus Essential Hoodie",
+    "business": "RetroVibe Apparel",
+    "price": 18500,
+}
+
+# A second and third listing: the related rail needs a category partner, and the
+# price-parity test needs the product to appear on Home and Discover too.
+EXTRA = [
+    {"slug": "airflux-midnight", "name": "AirFlux Midnight", "category": "Fashion", "price": 42000},
+    {"slug": "ocean-breeze-perfume", "name": "Ocean Breeze Perfume", "category": "Beauty", "price": 9800},
+]
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def catalogue(engine):
+    """Two sellers' worth of rows, created per test so nothing leaks between them."""
+    Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with Session() as session:
+        org = Organization(
+            official_name="RetroVibe Apparel",
+            short_name="RetroVibe Apparel",
+            slug=f"retrovibe-{uuid.uuid4().hex[:8]}",
+            country="Nigeria",
+            state="Lagos",
+            status="active",
+        )
+        session.add(org)
+        await session.flush()
+
+        session.add(
+            Product(
+                organization_id=org.id,
+                slug=KNOWN["slug"],
+                name=KNOWN["name"],
+                category="Fashion",
+                price=KNOWN["price"],
+                was_price=24000,
+                stock=12,
+                description="Heavyweight fleece hoodie cut for campus weather.",
+                tags=["hoodie", "campuswear"],
+                delivery_areas=["Lagos"],
+                pickup_address="Main Gate, Bells University",
+                image_url="https://example.com/hoodie.jpg",
+                image_alt="Folded grey hoodie",
+                popularity=96,
+            )
+        )
+        for item in EXTRA:
+            session.add(
+                Product(
+                    organization_id=org.id,
+                    name=item["name"],
+                    slug=item["slug"],
+                    category=item["category"],
+                    price=item["price"],
+                    stock=5,
+                    image_url="https://example.com/item.jpg",
+                    image_alt=item["name"],
+                )
+            )
+        await session.commit()
+    return KNOWN
 
 
 # --- the page itself -----------------------------------------------------
@@ -49,11 +120,11 @@ async def test_known_slug_renders_the_product(client: AsyncClient):
     assert "This page hasn't been built yet" not in body
 
 
-async def test_every_catalogue_slug_resolves(client: AsyncClient):
+async def test_every_catalogue_slug_resolves(client: AsyncClient, catalogue):
     """Every slug the Shop grid, the feed's tags and Discover's rail link to must
     resolve — a 404 behind a link the app renders itself is a broken app, and the
-    three surfaces all build their hrefs from this same list."""
-    for product in catalog.list_products():
+    three surfaces all build their hrefs from the same catalogue query."""
+    for product in [KNOWN, *EXTRA]:
         r = await client.get(f"/product/{product['slug']}")
         assert r.status_code == 200, f"{product['slug']}: {r.status_code}"
         assert product["name"] in r.text

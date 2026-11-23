@@ -17,6 +17,7 @@ from app.repositories.organization import OrganizationRepository
 from app.services import avatar as avatar_service
 from app.services import catalog
 from app.services import follow as follow_service
+from app.services import products as products_service
 from app.services import google_oauth
 
 router = APIRouter()
@@ -121,6 +122,7 @@ def _page_ctx(user: User | None, **extra) -> dict:
 @router.get("/", response_class=HTMLResponse)
 async def home(
     request: Request,
+    db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
     # The feed carries the catalogue because its posts TAG products (doc 06 §10).
@@ -132,7 +134,7 @@ async def home(
         request=request,
         name="home.html",
         context=_page_ctx(
-            user, page_title="Home", active_nav="home", **catalog.catalog_context()
+            user, page_title="Home", active_nav="home", **(await catalog.catalog_context(db))
         ),
     )
 
@@ -278,6 +280,7 @@ async def request_organization(request: Request):
 @router.get("/discover", response_class=HTMLResponse)
 async def discover(
     request: Request,
+    db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
     q: str | None = Query(default=None, max_length=100),
     tag: str | None = Query(default=None, max_length=60),
@@ -314,7 +317,7 @@ async def discover(
             page_title="Discover",
             active_nav="discover",
             initial_query=initial_query,
-            **catalog.catalog_context(),
+            **(await catalog.catalog_context(db)),
         ),
     )
 
@@ -432,6 +435,7 @@ async def profile(
 @router.get("/marketplace", response_class=HTMLResponse)
 async def marketplace(
     request: Request,
+    db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
     """The marketplace (docs/product/12-shop-and-products.md).
@@ -440,10 +444,10 @@ async def marketplace(
     is what the app calls it. The /marketplace PATH stays as-is so existing links
     and the cart affordance in base.html keep working.
 
-    No `db` dependency yet, and deliberately so: there is no `products` table, so
-    the catalogue comes from app/services/catalog.py — curated data shaped like
-    the `GET /api/products` response doc 12 §26 describes. When that lands, the
-    service grows a session parameter and the markup does not change.
+    The grid renders rows from the `products` table (0013_products). It used to
+    render a curated list in app/services/catalog.py; that module kept its return
+    shape when it went query-backed, which is why this route only had to grow a
+    `db` dependency and an `await` and the markup did not move.
     """
     return templates.TemplateResponse(
         request=request,
@@ -452,7 +456,7 @@ async def marketplace(
             user,
             page_title="Shop",
             active_nav="marketplace",
-            **catalog.catalog_context(),
+            **(await catalog.catalog_context(db)),
         ),
     )
 
@@ -461,6 +465,7 @@ async def marketplace(
 async def product_detail(
     request: Request,
     slug: str,
+    db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
     """One product, at its own URL (docs/product/12-shop-and-products.md §5).
@@ -488,7 +493,7 @@ async def product_detail(
     identical to the one the Shop grid renders.
     """
     try:
-        product = catalog.get_product(slug)
+        product = await catalog.get_product(db, slug)
     except NotFoundError:
         return templates.TemplateResponse(
             request=request,
@@ -501,7 +506,7 @@ async def product_detail(
                 slug=(slug or "")[:60],
                 # The 404 offers real alternatives rather than a dead end, so it
                 # needs the catalogue too.
-                products=catalog.list_products(),
+                products=await catalog.list_products(db),
             ),
             status_code=404,
         )
@@ -515,12 +520,12 @@ async def product_detail(
             active_nav="marketplace",
             product=product,
             discount=catalog.discount_percent(product),
-            related=catalog.related_products(product),
+            related=await catalog.related_products(db, product),
             # Absolute, and from configuration rather than request.base_url —
             # the latter comes from the Host header, so a spoofed one would end
             # up inside a link the user copies and shares.
             share_url=f"{settings.APP_BASE_URL.rstrip('/')}/product/{product['slug']}",
-            **catalog.catalog_context(),
+            **(await catalog.catalog_context(db)),
         ),
     )
 
@@ -558,6 +563,7 @@ async def dashboard(
     """
     business = None
     stats = None
+    catalog_stats = None
     if user is not None:
         business = await OrganizationRepository(db).get_owned_by_user(user.id)
         if business is not None:
@@ -566,6 +572,11 @@ async def dashboard(
             stats = await follow_service.get_profile_stats(
                 db, user_id=user.id, viewer_id=None
             )
+            # The Hub's ONE metric that products can answer honestly: how many
+            # listings are live and how much stock they hold. Sales, revenue and
+            # escrow need orders and payments, so they stay at zero and the
+            # template says why.
+            catalog_stats = await products_service.stats_for_business(db, business=business)
 
     return templates.TemplateResponse(
         request=request,
@@ -576,6 +587,7 @@ async def dashboard(
             active_nav="dashboard",
             business=business,
             stats=stats,
+            catalog_stats=catalog_stats,
             # The seller's own public profile, absolute and from configuration
             # rather than request.base_url — the latter comes from the Host
             # header, so a spoofed one would end up in a link they share.

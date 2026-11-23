@@ -255,8 +255,12 @@
                     </div>
                     {% endif %}
 
-                    {% if post.products %}
-                    {% set tagged = product_map[post.products[0]] %}
+                    {# The feed copy above is demo content; the catalogue is data. A
+                       post can tag a slug that was archived or never seeded, and
+                       the overlay badge is the one lookup that used to assume it
+                       resolved — which 500'd Home on a shop with no products. #}
+                    {% set tagged = product_map.get(post.products[0]) if post.products else none %}
+                    {% if tagged %}
                     <a href="/product/{{ tagged.slug }}"
                        aria-label="View tagged product {{ tagged.name }}"
                        class="on-media absolute bottom-4 left-4 flex items-center gap-2 bg-black/45 backdrop-blur-md px-3.5 py-2 rounded-full text-sm hover-card">
@@ -294,7 +298,8 @@
                 {% if post.products %}
                 <div class="px-3.5 sm:px-4 pt-3 flex gap-2.5 overflow-x-auto hide-scrollbar">
                     {% for slug in post.products %}
-                    {% set p = product_map[slug] %}
+                    {% set p = product_map.get(slug) %}
+                    {% if p %}
                     <a href="/product/{{ p.slug }}"
                        class="group flex items-center gap-3 bg-card border border-border rounded-2xl p-2 pr-3.5 shrink-0 hover-card"
                        aria-label="View {{ p.name }}, {{ money(p.price) }}">
@@ -308,6 +313,7 @@
                         </span>
                         <span class="material-symbols-outlined text-muted text-[20px]" aria-hidden="true">chevron_right</span>
                     </a>
+                    {% endif %}
                     {% endfor %}
                 </div>
                 {% endif %}
@@ -445,7 +451,8 @@
 
         <!-- flash deal — a real catalogue product with its real discount, so the
              price here and the price on its page are the same number -->
-        {% set deal = product_map['everyday-wristwatch'] %}
+        {% set deal = product_map.get('everyday-wristwatch') %}
+        {% if deal %}
         <div class="glass panel p-5">
             <div class="flex items-center justify-between gap-3 mb-4">
                 <h3 class="font-display text-[15px] font-bold leading-tight">⚡ Flash Deals</h3>
@@ -460,6 +467,7 @@
                 </div>
             </a>
         </div>
+        {% endif %}
 
         <!-- campus activity -->
         <div class="glass panel p-5">

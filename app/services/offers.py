@@ -51,16 +51,16 @@ def _card(p: dict) -> dict:
     }
 
 
-def product_card(slug: str) -> dict:
+async def product_card(db: AsyncSession, slug: str) -> dict:
     try:
-        return _card(catalog.get_product(slug))
+        return _card(await catalog.get_product(db, slug))
     except NotFoundError:
         return {"slug": slug, "available": False, "name": "Product unavailable", "price": 0,
                 "price_label": "", "image_url": None, "in_stock": False, "stock_label": "Unavailable"}
 
 
-def catalog_items() -> list[dict]:
-    return [_card(p) for p in catalog.list_products()][:40]
+async def catalog_items(db: AsyncSession) -> list[dict]:
+    return [_card(p) for p in await catalog.list_products(db)][:40]
 
 
 # --------------------------------------------------------------- helpers ----
@@ -124,7 +124,7 @@ async def deal_payload(db: AsyncSession, *, viewer_id: uuid.UUID, conversation) 
     if row is None:
         return {"product": None, "seller_is_me": False, "sold": False, "can_offer": False,
                 "pending_offer": None, "accepted_offer": None}
-    card = product_card(row.product_slug)
+    card = await product_card(db, row.product_slug)
     pending = await _offers_with(db, conversation.id, PENDING, row.product_slug)
     accepted = await _offers_with(db, conversation.id, ACCEPTED, row.product_slug)
     seller_is_me = row.seller_id == viewer_id
@@ -151,7 +151,7 @@ async def set_product(db: AsyncSession, *, viewer: User, public_id: uuid.UUID, s
     conversation, _ = await messaging_service.require_participant(db, viewer=viewer, public_id=public_id)
     if role not in ("seller", "buyer"):
         raise ValidationAppError("Say whether you're buying or selling.", fields={"role": "Invalid role."})
-    product = catalog.get_product(slug)  # NotFoundError for an unknown slug
+    product = await catalog.get_product(db, slug)  # NotFoundError for an unknown slug
     party = await _party_ids(db, conversation.id)
     row = await _lock_row(db, conversation.id)
     if row is None:
@@ -218,7 +218,7 @@ async def make_offer(db: AsyncSession, *, viewer: User, public_id: uuid.UUID, pr
         raise NotFoundError("Pin a product to this chat before making an offer.")
     if row.seller_id is None or row.seller_id == viewer.id:
         raise ForbiddenError("Only the buyer can start an offer. Use Counter on an offer you receive.")
-    card = product_card(row.product_slug)
+    card = await product_card(db, row.product_slug)
     if row.sold or not card["available"] or not card["in_stock"]:
         raise ConflictError("This item isn't available right now.")
     _check_price(price, card["price"])
@@ -258,7 +258,7 @@ async def respond(db: AsyncSession, *, viewer: User, public_id: uuid.UUID,
     else:
         if m.sender_id == viewer.id:
             raise ForbiddenError("You can't answer your own offer.")
-        card = product_card(row.product_slug)
+        card = await product_card(db, row.product_slug)
         if action in ("accept", "counter") and (row.sold or not card["available"] or not card["in_stock"]):
             raise ConflictError("This item isn't available right now.")
         if action == "accept":

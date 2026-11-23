@@ -576,7 +576,6 @@ async def test_a_share_link_carries_and_never_sends(client: AsyncClient, db: Asy
     from sqlalchemy import func
 
     from app.models.conversation import Conversation, Message
-    from app.services import catalog
 
     async def _row_counts() -> tuple[int, int]:
         conversations = await db.scalar(select(func.count()).select_from(Conversation))
@@ -588,8 +587,10 @@ async def test_a_share_link_carries_and_never_sends(client: AsyncClient, db: Asy
     await db.commit()
     assert await _row_counts() == (0, 0), "the fixture database did not start empty"
 
-    # A real catalogue slug, the same one the product page's Send link would carry.
-    slug = catalog.list_products()[0]["slug"]
+    # A slug shaped like a real one — the same string the product page's Send link
+    # carries. It is deliberately not resolved here (see the unvalidated cases
+    # below), so this test does not need a product row to exist.
+    slug = "campus-essential-hoodie"
     product = await client.get(f"/messages?share={slug}")
     assert product.status_code == 200, product.text
     assert f'data-share-slug="{slug}"' in product.text
