@@ -60,7 +60,20 @@ class Settings(BaseSettings):
     # should fail loudly rather than quietly send credentials in the clear.
     # Set DB_SSL=disable for a local Postgres with no TLS of its own. Ignored for
     # SQLite, which has no transport to encrypt.
+    #
+    # "require" encrypts but does NOT verify the certificate, so it stops passive
+    # snooping and not an active man-in-the-middle. "verify-full" is the mode that
+    # checks both, and it needs DB_SSL_CA_FILE because Supabase's pooler
+    # certificate chains to "Supabase Root 2021 CA" — a private CA the system
+    # trust store has never heard of (measured: verify against the system store
+    # fails with "self-signed certificate in certificate chain").
     DB_SSL: Literal["require", "verify-ca", "verify-full", "prefer", "allow", "disable"] = "require"
+    # Path to Supabase's root certificate (prod-ca-2021.crt), used only when
+    # DB_SSL is verify-ca or verify-full. Required in those modes: verification
+    # against a CA nobody configured is not verification. Supabase rotates this
+    # certificate rarely but does rotate it, so treat the file as configuration
+    # and re-download it from Dashboard -> Database settings if TLS starts failing.
+    DB_SSL_CA_FILE: str | None = None
 
     # --- Redis (optional for V1, see PRD Ch.12 sec 25) ------------------
     REDIS_URL: str | None = None

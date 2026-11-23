@@ -73,8 +73,14 @@ Listed in full in `REMAINING-WORK.md`; repeated here because they decide whether
 
 The Supabase schema is current: `alembic upgrade head` was run against it on
 2026-11-23 and it now reports `0013_products`, with `products` present and the
-ORM's SELECT verified against it. Nothing in the deploy applies migrations for
-you, so that step stays manual until it is scripted.
+ORM's SELECT verified against it. `./deploy.sh` now applies migrations as step
+one of every deploy, so this no longer depends on anyone remembering.
+
+Postgres TLS is on by default (`DB_SSL=require`), which encrypts but does not
+verify. `DB_SSL=verify-full` also checks the certificate, and needs
+`DB_SSL_CA_FILE=data/certs/prod-ca-2021.crt` — Supabase's pooler chains to a
+private CA, so the system trust store rejects it. Verified end to end on
+2026-11-23; see `REMAINING-WORK.md` for what that does and does not cover.
 
 1. The WebSocket fan-out is a per-process dict. With more than one worker, a
    message sent on worker A does not reach a socket held by worker B — it fails

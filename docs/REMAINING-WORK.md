@@ -68,23 +68,25 @@ machine, `purge_expired` on the two halves of disappearing, and
 
 ### Still owed on messaging
 
-1. **Put `alembic upgrade head` in the deploy step.** The database is current as
-   of 2026-11-23 — `0013_products` applied — but nothing applies migrations
-   automatically, and the failure that costs you is invisible to a green test
-   run: the suite builds its schema from `create_all`, so it passes whether or
-   not production has the table. This bit once already (`products` was missing
-   from Supabase while every test passed).
-2. **One worker, or fix the fan-out.** The socket registry is a per-process dict,
+**Migrations in the deploy step — done, 23 Nov 2026.** `./deploy.sh` is the
+production entrypoint: it runs `alembic upgrade head`, then `alembic current` so
+the deploy log shows the revision the schema actually reached, and only then
+starts uvicorn. `set -euo pipefail` makes a failed migration refuse the deploy
+rather than serve against an older schema, and the script exits immediately if
+`DATABASE_URL` is unset so it cannot quietly migrate a dev database. Still owed
+on it: a CI job that runs the same script before a release.
+
+1. **One worker, or fix the fan-out.** The socket registry is a per-process dict,
    so a message sent on one worker cannot reach a socket held by another.
    `docs/engineering/31-deployment-and-infrastructure.md:234` recommends multiple
    workers. The failure mode is quiet — messages still send, they just stop
    arriving live for some pairs — and reconnect-and-refetch masks it, which is
    what makes it quiet.
-3. **No cron for `purge_expired`.** Correct without one (the read filter is the
+2. **No cron for `purge_expired`.** Correct without one (the read filter is the
    correctness half), but storage is only reclaimed in conversations somebody
    still visits. The callable already takes `conversation_id=None` for a
    whole-table pass.
-4. **The manual two-account pass** in §4 below, which I can't do from here.
+3. **The manual two-account pass** in §4 below, which I can't do from here.
 
 ### Not being built, on purpose
 
