@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+
+{#
+  The operator console.
+
+  All numbers are rendered by the server and handed to ECharts as JSON, so the
+  page is readable before the chart script runs (the KPI cards and tables are
+  plain HTML) and a failed script leaves a working page rather than a blank one.
+  That is also why the charts are not the only way to read anything here.
+
+  Colour comes from the computed CSS custom properties at runtime, so the console
+  follows the same theme switch as the rest of the app instead of hard-coding a
+  second palette that drifts.
+#}
+
+{% block content %}
+<style>
+  .ad-grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+  .ad-kpi{background:var(--c-card,#152742);border:1px solid var(--c-border,rgba(255,255,255,.08));border-radius:18px;padding:16px 18px}
+  .ad-kpi .k{font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6}
+  .ad-kpi .v{font-size:26px;font-weight:700;margin-top:6px;font-variant-numeric:tabular-nums}
+  .ad-kpi .s{font-size:12px;opacity:.65;margin-top:2px}
+  .ad-card{background:var(--c-card,#152742);border:1px solid var(--c-border,rgba(255,255,255,.08));border-radius:18px;padding:16px 18px;margin-top:18px}
+  .ad-card h2{font-size:15px;font-weight:700;margin:0 0 4px}
+  .ad-card p.hint{font-size:12.5px;opacity:.6;margin:0 0 12px}
+  .ad-chart{width:100%;height:280px}
+  .ad-two{display:grid;gap:18px;grid-template-columns:1fr}
+  @media(min-width:900px){.ad-two{grid-template-columns:1.4fr 1fr}}
+  table.ad-t{width:100%;border-collapse:collapse;font-size:13px}
+  table.ad-t th{text-align:left;font-weight:600;opacity:.6;padding:8px 6px;border-bottom:1px solid var(--c-border,rgba(255,255,255,.09));white-space:nowrap}
+  table.ad-t td{padding:8px 6px;border-bottom:1px solid var(--c-border,rgba(255,255,255,.06));vertical-align:middle}
+  table.ad-t tr:last-child td{border-bottom:none}
+  .ad-act{display:flex;gap:6px;flex-wrap:wrap}
+  .ad-btn{font-size:12px;padding:5px 10px;border-radius:9px;border:1px solid var(--c-border,rgba(255,255,255,.14));background:none;color:inherit;cursor:pointer}
+  .ad-btn:hover{background:var(--c-glass,rgba(255,255,255,.07))}
+  .ad-btn.danger{color:#E5484D;border-color:rgba(229,72,77,.4)}
+  .ad-btn.on{background:var(--c-ink-primary,#7CC6FF);color:#07111F;border-color:transparent;font-weight:700}
+  .ad-scroll{overflow-x:auto}
+  .ad-num{width:88px}
+  .ad-num input{width:100%;padding:5px 8px;font-size:12.5px}
+  .ad-banner{background:rgba(240,180,41,.14);border:1px solid rgba(240,180,41,.4);color:inherit;border-radius:12px;padding:10px 14px;font-size:13px;margin-bottom:16px}
+</style>
+
+<div class="ad-banner">
+  Signed in as <b>@{{ current_user.username }}</b> · operator console
+</div>
+
+<div class="ad-grid">
+  <div class="ad-kpi">
+    <div class="k">Members</div>
+    <div class="v">{{ '{:,}'.format(data.kpi.users) }}</div>
+    <div class="s">{{ data.kpi.users_7d }} joined in the last 7 days</div>
+  </div>
+  <div class="ad-kpi">
+    <div class="k">Paid revenue</div>
+    <div class="v">₦{{ '{:,.0f}'.format(data.kpi.revenue) }}</div>
+    <div class="s">{{ data.kpi.orders_paid }} settled orders</div>
+  </div>
+  <div class="ad-kpi">
+    <div class="k">Live listings</div>
+    <div class="v">{{ '{:,}'.format(data.kpi.products) }}</div>
+    <div class="s">across every shop</div>
+  </div>
+  <div class="ad-kpi">
+    <div class="k">Feed</div>
+    <div class="v">{{ '{:,}'.format(data.kpi.posts) }}</div>
+    <div class="s">{{ data.kpi.likes }} likes · {{ data.kpi.comments }} comments</div>
+  </div>
+  <div class="ad-kpi">
+    <div class="k">Messages · 7d</div>
+    <div class="v">{{ '{:,}'.format(data.kpi.messages_7d) }}</div>
+    <div class="s">across all conversations</div>
+  </div>
+</div>
+
+<div class="ad-two">
+  <div class="ad-card">
+    <h2>Growth</h2>
+    <p class="hint">New members and new posts per day, last 30 days.</p>
+    <div class="ad-chart" id="ad-growth"></div>
+  </div>
+  <div class="ad-card">
+    <h2>Where members are</h2>
+    <p class="hint">By campus state. “Unattached” means no organization on the profile.</p>
+    <div class="ad-chart" id="ad-states"></div>
+  </div>
+</div>
+
+<div class="ad-card">
+  <h2>Revenue</h2>
+  <p class="hint">Settled payments per day, last 30 days. Amounts in naira.</p>
+  <div class="ad-chart" id="ad-revenue"></div>
+</div>
+
+<div class="ad-card" id="users">
+  <h2>Members</h2>
+  <p class="hint">Most recent 40. Suspending blocks sign-in; deleting hides the account but keeps its orders readable.</p>
+  <div class="ad-scroll">
+    <table class="ad-t">
+      <thead><tr><th>Member</th><th>Type</th><th>Status</th><th>Joined</th><th>Actions</th></tr></thead>
+      <tbody>
+        {% for u in data.users %}
+        <tr>
+          <td>
+            <b>@{{ u.username }}</b>{% if u.is_admin %} <span style="opacity:.6">· staff</span>{% endif %}
+            <div style="opacity:.55;font-size:12px">{{ u.display_name }}</div>
+          </td>
+          <td>{{ enum_label(u.account_type) }}</td>
+          <td>{{ enum_label(u.account_status) }}</td>
+          <td>{{ u.created_at.strftime('%d %b %Y') if u.created_at else '—' }}</td>
+          <td>
+            <div class="ad-act">
+              {% if u.id != current_user.id %}
+              <form method="post" action="/admin/users/{{ u.public_id }}/status">
+                {% if enum_label(u.account_status) == 'suspended' %}
+                <input type="hidden" name="status" value="active">
+                <button class="ad-btn" type="submit">Reinstate</button>
+                {% else %}
+                <input type="hidden" name="status" value="suspended">
+                <button class="ad-btn" type="submit">Suspend</button>
+                {% endif %}
+              </form>
+              <form method="post" action="/admin/users/{{ u.public_id }}/admin">
+                <button class="ad-btn {{ 'on' if u.is_admin else '' }}" type="submit">
+                  {{ 'Revoke staff' if u.is_admin else 'Make staff' }}
+                </button>
+              </form>
+              <form method="post" action="/admin/users/{{ u.public_id }}/delete"
+                    onsubmit="return confirm('Delete @{{ u.username }}? Their orders stay readable.')">
+                <button class="ad-btn danger" type="submit">Delete</button>
+              </form>
+              {% else %}
+              <span style="opacity:.5;font-size:12px">That's you</span>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="ad-card" id="posts">
+  <h2>Posts</h2>
+  <p class="hint">Hiding takes a post out of the feed without destroying the row a report points at.</p>
+  <div class="ad-scroll">
+    <table class="ad-t">
+      <thead><tr><th>Author</th><th>Post</th><th>Status</th><th>Likes</th><th>Actions</th></tr></thead>
+      <tbody>
+        {% for post, author in data.posts %}
+        <tr>
+          <td>@{{ author.username }}</td>
+          <td style="max-width:420px">{{ post.body[:140] }}{{ '…' if post.body|length > 140 else '' }}</td>
+          <td>{{ post.status }}</td>
+          <td>{{ post.like_count }}</td>
+          <td>
+            <div class="ad-act">
+              <form method="post" action="/admin/posts/{{ post.public_id }}/hide">
+                <button class="ad-btn" type="submit">{{ 'Show' if post.status == 'hidden' else 'Hide' }}</button>
+              </form>
+              <form method="post" action="/admin/posts/{{ post.public_id }}/delete"
+                    onsubmit="return confirm('Delete this post?')">
+                <button class="ad-btn danger" type="submit">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="ad-card" id="products">
+  <h2>Listings</h2>
+  <p class="hint">Edit price (naira) and stock in place. Deleting archives the listing; a shared link then answers 404.</p>
+  <div class="ad-scroll">
+    <table class="ad-t">
+      <thead><tr><th>Listing</th><th>Shop</th><th>Price</th><th>Stock</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        {% for product, shop in data.products %}
+        <tr>
+          <td><a href="/product/{{ product.slug }}" target="_blank" rel="noopener">@{{ product.name }}</a></td>
+          <td>{{ shop.short_name or shop.official_name }}</td>
+          <td colspan="2">
+            <form method="post" action="/admin/products/{{ product.slug }}/update" style="display:flex;gap:8px;align-items:center">
+              <div class="ad-num"><input type="number" name="price" min="0" value="{{ product.price }}" aria-label="Price"></div>
+              <div class="ad-num"><input type="number" name="stock" min="0" value="{{ product.stock }}" aria-label="Stock"></div>
+              <button class="ad-btn" type="submit">Save</button>
+            </form>
+          </td>
+          <td>{{ product.status }}</td>
+          <td>
+            <form method="post" action="/admin/products/{{ product.slug }}/delete"
+                  onsubmit="return confirm('Archive this listing?')">
+              <button class="ad-btn danger" type="submit">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script src="/static/js/vendor/echarts.min.js" defer></script>
+<script>
+  // Runs after ECharts loads (defer keeps it off the critical path). Every chart
+  // is optional: if the script is missing or the theme has no brand colour we
+  // leave the containers empty rather than throwing and taking the page with us.
+  window.addEventListener('DOMContentLoaded', function () {
+    if (!window.echarts) return;
+
+    const data = {{ charts | tojson }};
+    const css = getComputedStyle(document.documentElement);
+    const pick = (name, fallback) => (css.getPropertyValue(name) || '').trim() || fallback;
+    // The app's own ink tokens, so the charts follow the theme switch instead of
+    // hard-coding a second palette that drifts from the rest of the product.
+    const ink = pick('--c-text', '#E7EEF7');
+    const brand = pick('--c-ink-primary', '#7CC6FF');
+    const brand2 = pick('--c-ink-accent', '#FFB547');
+    const grid = { left: 38, right: 14, top: 28, bottom: 26 };
+    const base = {
+      backgroundColor: 'transparent',
+      textStyle: { color: ink, fontFamily: 'inherit' },
+      tooltip: { trigger: 'axis' },
+      grid: grid,
+      legend: { top: 0, right: 0, textStyle: { color: ink, fontSize: 11 }, itemWidth: 12, itemHeight: 8 }
+    };
+    const axis = (extra) => Object.assign({
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: { color: ink, opacity: .55, fontSize: 10 },
+      splitLine: { lineStyle: { color: ink, opacity: .08 } }
+    }, extra || {});
+
+    const growth = echarts.init(document.getElementById('ad-growth'));
+    growth.setOption(Object.assign({}, base, {
+      grid: { left: 32, right: 12, top: 30, bottom: 26 },
+      xAxis: axis({ type: 'category', data: data.labels, boundaryGap: false }),
+      yAxis: axis({ type: 'value', minInterval: 1 }),
+      series: [
+        { name: 'Members', type: 'line', smooth: true, showSymbol: false,
+          data: data.signups, lineStyle: { width: 2.5, color: brand },
+          areaStyle: { opacity: .16, color: brand }, itemStyle: { color: brand } },
+        { name: 'Posts', type: 'line', smooth: true, showSymbol: false,
+          data: data.posts_series, lineStyle: { width: 2, color: brand2 },
+          itemStyle: { color: brand2 } }
+      ]
+    }));
+
+    const states = echarts.init(document.getElementById('ad-states'));
+    states.setOption(Object.assign({}, base, {
+      grid: { left: 70, right: 16, top: 12, bottom: 20 },
+      tooltip: { trigger: 'item' },
+      xAxis: axis({ type: 'value', minInterval: 1 }),
+      yAxis: axis({ type: 'category', data: data.states.map(s => s.name).reverse() }),
+      series: [{
+        type: 'bar', data: data.states.map(s => s.value).reverse(),
+        barWidth: 12, itemStyle: { color: brand, borderRadius: [0, 6, 6, 0] },
+        label: { show: true, position: 'right', color: ink, opacity: .7, fontSize: 10 }
+      }]
+    }));
+
+    const revenue = echarts.init(document.getElementById('ad-revenue'));
+    revenue.setOption(Object.assign({}, base, {
+      grid: { left: 46, right: 14, top: 24, bottom: 26 },
+      xAxis: axis({ type: 'category', data: data.labels, boundaryGap: false }),
+      yAxis: axis({ type: 'value', minInterval: 1, axisLabel: { color: ink, opacity: .55, fontSize: 10, formatter: '₦{value}' } }),
+      series: [{
+        name: 'Paid orders', type: 'bar', data: data.revenue_series,
+        barMaxWidth: 18, itemStyle: { color: brand2, borderRadius: [4, 4, 0, 0] }
+      }]
+    }));
+
+    // One observer for all three: a window resize otherwise fires three
+    // separate layout passes per frame while someone drags the window.
+    const charts = [growth, states, revenue];
+    let raf = null;
+    window.addEventListener('resize', () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => charts.forEach(c => c.resize()));
+    });
+  });
+</script>
+{% endblock %}

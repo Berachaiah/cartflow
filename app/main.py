@@ -13,6 +13,7 @@ from app.core.logging import get_logger, setup_logging
 from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
 from app.database.session import dispose_engine, engine
 from app.routers import (
+    admin,
     auth,
     business,
     messages,
@@ -139,6 +140,9 @@ async def health_ready():
 
 # --- Page routes (server-rendered Jinja2 templates) -----------------------
 app.include_router(pages.router)
+# Operator console. Registered after the public pages so /admin is reachable even
+# when the public router's catch-all-ish ordering changes.
+app.include_router(admin.router)
 app.include_router(organizations.router)
 app.include_router(organizations.taxonomy_router)
 app.include_router(universities.router)

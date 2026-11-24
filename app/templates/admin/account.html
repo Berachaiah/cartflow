@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{#
+  The forced-password screen.
+
+  It is not a settings sub-page that you can navigate away from and ignore: the
+  dashboard redirects here while the password is still the seeded default, and
+  only this form clears that state. The banner says so in one sentence rather
+  than a modal, because a modal over a dashboard still leaves the dashboard
+  visible and the password unchanged.
+#}
+
+{% block content %}
+<div style="max-width:520px;margin:24px auto 60px">
+  {% if must_change %}
+  <div class="ad-banner" style="background:rgba(229,72,77,.14);border-color:rgba(229,72,77,.4)">
+    This account still has the password the console was seeded with. Change it to continue.
+  </div>
+  {% endif %}
+
+  <div class="ad-card">
+    <h2>Change the operator password</h2>
+    <p class="hint">@{{ current_user.username }} · the console can read every payment and every member.</p>
+
+    {% if error %}
+    <div class="ad-banner" style="background:rgba(229,72,77,.14);border-color:rgba(229,72,77,.4)">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/admin/account/password" style="display:grid;gap:12px;margin-top:12px">
+      <label style="display:grid;gap:6px;font-size:13px">
+        Current password
+        <input type="password" name="current_password" autocomplete="current-password" required>
+      </label>
+      <label style="display:grid;gap:6px;font-size:13px">
+        New password
+        <input type="password" name="new_password" autocomplete="new-password" minlength="10" required>
+      </label>
+      <label style="display:grid;gap:6px;font-size:13px">
+        Repeat new password
+        <input type="password" name="confirm_password" autocomplete="new-password" minlength="10" required>
+      </label>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:4px">
+        <button class="ad-btn on" type="submit" style="padding:9px 16px">Update password</button>
+        <a href="/admin" style="font-size:13px;opacity:.7">Back to console</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
