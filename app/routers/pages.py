@@ -17,6 +17,8 @@ from app.repositories.organization import OrganizationRepository
 from app.services import avatar as avatar_service
 from app.services import catalog
 from app.services import follow as follow_service
+from app.services import messaging as messaging_service
+from app.services import posts as posts_service
 from app.services import products as products_service
 from app.services import google_oauth
 
@@ -130,11 +132,19 @@ async def home(
     # from `product_map` at render time, so a product tagged in the feed and the
     # same product on its own page always quote the same number — and every tag
     # is a real link to /product/{slug} rather than a modal repeating the facts.
+    #
+    # `feed_posts` comes from the posts table (0014_posts), not from a literal in
+    # the template. That is what makes the same post appear here and on its
+    # author's profile, and what makes a like count a real number.
     return templates.TemplateResponse(
         request=request,
         name="home.html",
         context=_page_ctx(
-            user, page_title="Home", active_nav="home", **(await catalog.catalog_context(db))
+            user,
+            page_title="Home",
+            active_nav="home",
+            feed_posts=await posts_service.feed(db, viewer=user),
+            **(await catalog.catalog_context(db)),
         ),
     )
 
@@ -404,6 +414,26 @@ async def profile(
             profile_user.id
         )
 
+    # What this account has actually made. Read here rather than in the template
+    # for the same reason the Hub's listings are: an empty list is the only thing
+    # that produces an empty state, so "No products yet" can never be shown next
+    # to a shop that has eight of them (which is what the profile did before).
+    profile_products = (
+        await products_service.list_for_business(db, business=profile_business)
+        if profile_business is not None
+        else []
+    )
+    profile_posts = await posts_service.by_author(
+        db, author_id=profile_user.id, viewer=user
+    )
+    # Liked is PRIVATE: computed only for the owner, so a visitor's HTML never
+    # contains it at all (the tab is not rendered for them either).
+    liked_posts = (
+        await posts_service.liked_by_user(db, user_id=profile_user.id, viewer=user)
+        if is_own_profile
+        else []
+    )
+
     return templates.TemplateResponse(
         request=request,
         name="profile.html",
@@ -416,6 +446,9 @@ async def profile(
             # brand's own organization.
             profile_org=profile_user.organization,
             profile_business=profile_business,
+            profile_products=profile_products,
+            profile_posts=profile_posts,
+            liked_posts=liked_posts,
             stats=stats,
             is_own_profile=is_own_profile,
             # Keyed on the CAPABILITY, not account_type — a student who sells

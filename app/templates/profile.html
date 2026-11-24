@@ -261,9 +261,12 @@
                         {% if is_business_profile %}
                         {# Not a button: a real count that is 0 because no post can
                            exist yet, so there is nothing to open. #}
+                        {# The real count, from the same list the Posts grid renders.
+                           It said `0` while the grid below it showed two posts —
+                           two surfaces on one page disagreeing about one table. #}
                         <span class="flex items-center gap-1">
-                            <span class="font-bold">0</span>
-                            <span class="text-muted">posts</span>
+                            <span class="font-bold">{{ "{:,}".format(profile_posts | length) }}</span>
+                            <span class="text-muted">post{{ '' if profile_posts | length == 1 else 's' }}</span>
                         </span>
                         {% endif %}
                     </div>
@@ -413,10 +416,64 @@
          Honest empty states, not placeholder rows. When the content backend
          lands, each panel's inner block is replaced by a real list; the tab
          mechanics above do not change. -->
+    {# Real content first, empty state second — and ONLY when the list is empty.
+       Every one of these lists is server-side data (posts table, products table),
+       so a panel can no longer claim there is nothing while the account has
+       something. `empty` is the fallback, not the default. #}
+    {% set panel_items = {
+        "products": profile_products,
+        "posts": profile_posts,
+        "liked": liked_posts,
+        "events": [],
+        "reviews": [],
+        "reposts": [],
+        "saved": []
+    } %}
     {% for t in tabs %}
     <div id="panel-{{ t.key }}" role="tabpanel" aria-labelledby="tab-{{ t.key }}"
          class="profile-panel {{ '' if loop.first else 'hidden' }} pt-4">
         {% set copy = panel_copy[t.key] %}
+        {% set items = panel_items[t.key] %}
+
+        {% if t.key == 'products' and items %}
+        {# A 2-up grid of the shop's real listings: photo, name, price. Same rows
+           and same projection Shop renders, so the price here IS the price on the
+           product page. #}
+        <div class="grid grid-cols-2 gap-2.5 sm:gap-3">
+            {% for p in items %}
+            <a href="/product/{{ p.slug }}" class="group glass panel overflow-hidden hover-card">
+                <img src="{{ p.image }}" alt="{{ p.alt }}" loading="lazy" class="w-full aspect-square object-cover">
+                <span class="block p-2.5">
+                    <span class="block text-[12.5px] font-semibold truncate group-hover:text-primary transition-colors">{{ p.name }}</span>
+                    <span class="flex items-baseline gap-1.5 whitespace-nowrap">
+                        <span class="text-[13px] font-bold text-primary">{{ naira(p.price) }}</span>
+                        {% if p.was %}<span class="text-[11px] text-muted line-through">{{ naira(p.was) }}</span>{% endif %}
+                    </span>
+                </span>
+            </a>
+            {% endfor %}
+        </div>
+
+        {% elif t.key in ('posts', 'liked') and items %}
+        {# Posts are photos first, exactly like the feed card they came from. The
+           like count under each is the real `posts.like_count`, which is what
+           makes a like on Home show up here. #}
+        <div class="grid grid-cols-3 gap-1.5">
+            {% for post in items %}
+            <figure class="relative aspect-square rounded-xl overflow-hidden bg-card">
+                {% if post.media %}
+                <img src="{{ post.media[0].src }}" alt="{{ post.media[0].alt }}" loading="lazy" class="w-full h-full object-cover">
+                {% else %}
+                <span class="w-full h-full flex items-center justify-center p-2 text-[10.5px] leading-snug text-muted overflow-hidden">{{ post.caption }}</span>
+                {% endif %}
+                <figcaption class="absolute bottom-0 left-0 right-0 px-1.5 py-1 bg-black/45 backdrop-blur-md text-[10.5px] font-semibold text-white flex items-center gap-1">
+                    <span class="material-symbols-outlined" style="font-size:13px" aria-hidden="true">favorite</span>{{ post.likes }}
+                </figcaption>
+            </figure>
+            {% endfor %}
+        </div>
+
+        {% else %}
         <div class="text-center px-6 py-8">
             <span class="w-11 h-11 rounded-xl bg-card border border-border inline-flex items-center justify-center mb-3" aria-hidden="true">
                 <span class="material-symbols-outlined text-[22px] text-muted">{{ t.icon }}</span>
@@ -430,20 +487,14 @@
             </a>
             {% endif %}
         </div>
+        {% endif %}
     </div>
     {% endfor %}
 
-    {# Said once, at the bottom, rather than inside every panel: the tabs are
-       empty because the feature is unbuilt, not because this account is empty or
-       something is hidden from you. Worded per profile type so it never promises
-       a customer the seller features they don't have. #}
-    <p class="text-center text-[11px] text-muted px-6 pb-2 opacity-70">
-        {% if is_business_profile %}
-        Posts, products, events and reviews arrive with CartFlow's content release.
-        {% else %}
-        Sharing and reposting arrive with CartFlow's content release.
-        {% endif %}
-    </p>
+    {# No "arrives with the content release" line any more: posts and products
+       are here, and a sentence about a future release next to real content reads
+       as a bug. Only Events/Reviews/Reposts still have no table, and those panels
+       say so themselves. #}
 
 </div>
 {% endblock %}

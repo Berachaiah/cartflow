@@ -137,7 +137,7 @@ def test_line_clamp_is_available_app_wide():
     )
 
 
-async def test_the_post_author_wraps_rather_than_clips(client: AsyncClient):
+async def test_the_post_author_wraps_rather_than_clips(sample_feed, client: AsyncClient):
     """The exact heading from the report, by name."""
     r = await client.get("/")
     assert "SneakerLab" in r.text, "the sample post used in the report is gone"
@@ -153,7 +153,7 @@ async def test_the_post_author_wraps_rather_than_clips(client: AsyncClient):
     )
 
 
-async def test_the_meta_line_still_clips(client: AsyncClient):
+async def test_the_meta_line_still_clips(sample_feed, client: AsyncClient):
     """The other half of the rule: sub-lines are abbreviatable and should clip.
 
     Without this, a well-meaning sweep of `truncate` would turn "@sneakerlab · 5h ·

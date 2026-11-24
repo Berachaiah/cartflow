@@ -38,6 +38,8 @@ from app.models.conversation import (  # noqa: F401
     MessageKind,
     UserBlock,
 )
+# After `user`: posts.author_id and post_likes.user_id point at it.
+from app.models.post import Post, PostLike, PostStatus  # noqa: F401
 # After `conversation`: reports.conversation_id points at it.
 from app.models.report import (  # noqa: F401
     REPORT_REASON_LABELS,

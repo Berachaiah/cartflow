@@ -51,11 +51,16 @@ HOME_CODE = _code(HOME)
 
 
 def _feed_media_srcs() -> list[str]:
-    """Every photo URL in the `feed_posts` literal, in document order."""
-    block = re.search(r"\{%\s*set feed_posts = \[(.*?)\n\]\s*%\}", HOME, re.DOTALL)
-    assert block, "could not find the feed_posts literal in home.html"
-    srcs = re.findall(r'"src":\s*"([^"]+)"', block.group(1))
-    assert len(srcs) >= 6, f"expected the sample feed to have several photos, found {len(srcs)}"
+    """Every photo URL in the SEEDED feed, in document order.
+
+    Read from `tests/feed_data.py` rather than scraped out of `home.html`: posts
+    are rows now, so the template holds no photo URLs at all and scraping it was
+    the only reason this assertion ever passed.
+    """
+    from tests.feed_data import ALL_FEED_PHOTOS
+
+    srcs = list(ALL_FEED_PHOTOS)
+    assert len(srcs) >= 3, f"expected the sample feed to have several photos, found {len(srcs)}"
     return srcs
 
 
@@ -76,7 +81,7 @@ def _multi_photo_track(page: str) -> str:
 
 # --- 1. no photo is dropped, and they are one at a time -----------------
 
-async def test_every_photo_in_the_feed_reaches_the_page(client: AsyncClient):
+async def test_every_photo_in_the_feed_reaches_the_page(sample_feed, client: AsyncClient):
     """The `[:3]` slice bug, stated as an invariant rather than a class name.
 
     This is the assertion that survives a rewrite of the carousel: however the
@@ -104,7 +109,7 @@ def test_the_three_up_grid_is_gone():
     )
 
 
-async def test_slides_are_one_per_photo_and_full_width(client: AsyncClient):
+async def test_slides_are_one_per_photo_and_full_width(sample_feed, client: AsyncClient):
     r = await client.get("/")
     track = re.search(r'class="post-track([^"]*)"', r.text)
     assert track, "no .post-track in the rendered feed"
@@ -141,7 +146,7 @@ def test_swipe_cannot_navigate_the_browser_back():
     )
 
 
-async def test_a_multi_photo_post_says_how_many(client: AsyncClient):
+async def test_a_multi_photo_post_says_how_many(sample_feed, client: AsyncClient):
     """The n/N counter and the dots — and only on posts that have more than one."""
     r = await client.get("/")
     counters = re.findall(r'class="post-counter[^"]*"[^>]*>([^<]+)<', r.text)
@@ -159,7 +164,7 @@ async def test_a_multi_photo_post_says_how_many(client: AsyncClient):
     )
 
 
-async def test_slides_are_reachable_without_a_pointer(client: AsyncClient):
+async def test_slides_are_reachable_without_a_pointer(sample_feed, client: AsyncClient):
     r = await client.get("/")
     attrs = _multi_photo_track(r.text)
     assert 'tabindex="0"' in attrs, (
@@ -211,20 +216,27 @@ def test_double_tap_never_removes_a_like():
     The gesture is easy to fire by accident while swiping, and quietly removing a
     like you already gave is the one outcome you cannot see happen.
     """
-    assert "setLiked(btn, true)" in HOME, (
+    assert "cfLike(btn, true)" in HOME, (
         "the double-tap handler no longer forces `true` — if it toggles, an accidental "
         "double-tap on a post you already liked silently un-likes it"
     )
-    assert "function toggleLike" in HOME and "function setLiked" in HOME, (
-        "both ways to like a post must go through one setLiked(), or the button and the "
+    # The like is persisted now (`POST /api/posts/{id}/like`), so the single path
+    # is cfLike: it paints the card and writes the row. setLiked stays the one
+    # place that decides what "liked" looks like.
+    assert "function cfLike" in HOME and "function setLiked" in HOME and "function toggleLike" in HOME, (
+        "both ways to like a post must go through one path, or the button and the "
         "gesture end up disagreeing about the count"
+    )
+    assert "/api/posts/" in HOME and "/like" in HOME, (
+        "a like that is not sent anywhere is a like that disappears on reload"
     )
 
 
-async def test_the_burst_heart_cannot_swallow_a_tap(client: AsyncClient):
+async def test_the_burst_heart_cannot_swallow_a_tap(sample_feed, client: AsyncClient):
     r = await client.get("/")
     hearts = r.text.count('class="tap-heart')
-    assert hearts == 5, f"expected one .tap-heart per post, found {hearts}"
+    # One per rendered post: the count comes from the seed, not from a literal.
+    assert hearts == len(sample_feed), f"expected one .tap-heart per post, found {hearts}"
     heart_css = re.search(r"\.tap-heart\{([^}]*)\}", HOME)
     assert heart_css, "no .tap-heart rule"
     assert "pointer-events:none" in heart_css.group(1), (
@@ -237,7 +249,7 @@ async def test_the_burst_heart_cannot_swallow_a_tap(client: AsyncClient):
     )
 
 
-async def test_like_state_is_announced(client: AsyncClient):
+async def test_like_state_is_announced(sample_feed, client: AsyncClient):
     r = await client.get("/")
     assert 'aria-pressed="false"' in r.text, (
         "the like button carries no aria-pressed, so a screen reader cannot tell a liked "

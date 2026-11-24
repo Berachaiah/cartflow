@@ -98,7 +98,7 @@ async def _signup_and_login(
 
 # --- home render ---------------------------------------------------------
 
-async def test_home_renders_signed_out(client: AsyncClient):
+async def test_home_renders_signed_out(sample_feed, client: AsyncClient):
     """No session cookie → 200, branded chrome, and a log-in affordance rather
     than a 401 or a 500."""
     r = await client.get("/")
@@ -106,7 +106,8 @@ async def test_home_renders_signed_out(client: AsyncClient):
     body = r.text
     assert "CartFlow" in body
     assert "Log in" in body  # signed-out sidebar/right-rail affordance
-    # feed content rendered
+    # Feed content rendered. The post is a real row now (`0014_posts`), so this
+    # asserts the seeded author reached the page rather than reading a literal.
     assert "RetroVibe Apparel" in body
 
 
@@ -312,17 +313,28 @@ async def test_create_sheet_offers_shop_management_to_a_seller(client: AsyncClie
 
 
 async def test_create_sheet_never_ships_a_composer(client: AsyncClient):
-    """The honesty rule for this sheet: doc 06 §4-7 specifies a post composer and
-    there is no posts table, so the four deferred things are listed with what each
-    is waiting on instead of being given a form that drops its input."""
+    """The sheet still has no composer, and no longer advertises gaps that closed.
+
+    Rewritten when posts and products landed. It used to assert that four rows
+    explained what each missing feature was waiting on — "needs posts + media",
+    "needs products". Two of those statements became false the moment the tables
+    existed, and a create button that tells you posts are unbuilt while the feed
+    is full of them is the thing this test now prevents.
+
+    The rule that survives is the honest one: no form whose submit would drop
+    what it was given, and everything the sheet offers goes somewhere real.
+    """
     body = (await client.get("/marketplace")).text
-    for waiting in (
-        "needs posts + media (doc 06)",
-        "needs stories + media (doc 09)",
-        "needs products (doc 12 §26)",
-        "Milestone 2 (doc 17)",
+    for stale in (
+        "needs posts + media",
+        "needs products",
+        "Coming soon",
     ):
-        assert waiting in body, f"missing deferral reason: {waiting}"
+        assert stale not in body, f"the create sheet still claims: {stale}"
+    # The sheet is still there (it is the + button's target); what changed is that
+    # it no longer carries a roadmap. Signed-out renders the log-in card instead
+    # of the action rows, so only the sheet's presence is asserted here.
+    assert 'id="createSheet"' in body
 
 
 async def test_create_sheet_is_absent_from_bare_pages(client: AsyncClient):

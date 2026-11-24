@@ -28,6 +28,7 @@ from app.database.base import Base
 from app.database.session import get_db
 from app.main import app
 from app.models.organization import OrganizationGroup, OrganizationType
+from tests.feed_data import seed_feed
 
 # Deterministic taxonomy IDs mirror the migration (0002_organizations.py)
 EDU_GROUP_ID = uuid.UUID("11111111-0000-4000-8000-000000000001")
@@ -111,6 +112,21 @@ async def client(engine):
         yield c
 
     app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def sample_feed(engine):
+    """Three real posts by three real accounts, so Home has rows to render.
+
+    The feed is data now (`0014_posts`), not a literal in the template, so every
+    render test that talks about a post needs one to exist. Returns the seeded
+    posts; `tests/feed_data.py` holds the photo list the assertions compare
+    against, so the expectation and the data cannot drift apart.
+    """
+    SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with SessionLocal() as session:
+        posts = await seed_feed(session)
+    return posts
 
 
 # --- Never touch the network from tests ---------------------------------
