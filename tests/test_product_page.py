@@ -33,7 +33,9 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models.organization import Organization
+from app.models.post import Post
 from app.models.product import Product
+from app.models.user import AccountStatus, AccountType, User
 from app.services import catalog
 
 # THE CATALOGUE IS A TABLE NOW. These tests used to read the curated list in
@@ -279,8 +281,44 @@ async def test_absurdly_long_slug_is_capped(client: AsyncClient):
 
 # --- price parity across the surfaces ------------------------------------
 
+@pytest_asyncio.fixture
+async def tagged_post(engine):
+    """A post tagging KNOWN's product, so Home has a price to print.
+
+    Home shows a price in exactly two places: the flash-deal card and a post's
+    tagged-product chip, and both read the catalogue. The feed is a table now, so
+    without a post there is no chip — and this test would fail for want of a tag
+    rather than for a difference in formatting, which is the thing it exists to
+    catch.
+    """
+    Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with Session() as session:
+        author = User(
+            account_type=AccountType.INDIVIDUAL,
+            account_status=AccountStatus.ACTIVE,
+            email="tagged-post@sample.cartflow.test",
+            username="taggedpost",
+            username_normalized="taggedpost",
+            display_name="Tagged Shop",
+            full_name="Tagged Shop",
+            is_seller=True,
+        )
+        session.add(author)
+        await session.flush()
+        session.add(
+            Post(
+                author_id=author.id,
+                body="Tagged post #CampusWear",
+                images=[],
+                tagged_product_slugs=[KNOWN["slug"]],
+                like_count=3,
+            )
+        )
+        await session.commit()
+
+
 @pytest.mark.parametrize("path", ["/", "/discover", "/marketplace"])
-async def test_price_reads_the_same_everywhere(client: AsyncClient, path: str):
+async def test_price_reads_the_same_everywhere(tagged_post, client: AsyncClient, path: str):
     """One formatter, four surfaces. Every page that prints this product's price
     prints the string `catalog.naira` produces — no page re-implements grouping,
     and none of them prints a bare integer."""
