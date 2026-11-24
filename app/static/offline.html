@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CartFlow — offline</title>
+<meta name="theme-color" content="#F5F3EF">
+<style>
+  :root { color-scheme: light; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    background: #F5F3EF; color: #1B1B18;
+    font: 16px/1.55 "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 24px; box-sizing: border-box;
+  }
+  .card { max-width: 420px; text-align: center; }
+  .mark {
+    width: 56px; height: 56px; margin: 0 auto 18px; border-radius: 16px;
+    background: #1B1B18; color: #F5F3EF; display: grid; place-items: center;
+    font-weight: 700; letter-spacing: -0.03em;
+  }
+  h1 { font-size: 1.25rem; margin: 0 0 8px; letter-spacing: -0.01em; }
+  p { margin: 0 0 20px; color: #5B5B54; }
+  button {
+    font: inherit; font-weight: 600; cursor: pointer;
+    padding: 11px 22px; border: 0; border-radius: 999px;
+    background: #1B1B18; color: #F5F3EF;
+  }
+  small { display: block; margin-top: 18px; color: #8A8A80; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="mark">CF</div>
+    <h1>You're offline</h1>
+    <p>CartFlow needs a connection to load shops, messages and prices. Reconnect and the page you were on will load again.</p>
+    <button type="button" onclick="location.reload()">Try again</button>
+    <small>Pages that need your account are never stored on the device.</small>
+  </div>
+</body>
+</html>

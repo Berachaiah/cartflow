@@ -30,7 +30,7 @@ Preview). Values are never committed.
 | `DB_SSL` | recommended | `require` (default) or `verify-full` + `DB_SSL_CA_FILE` |
 | `SMTP_*`, `EMAIL_FROM` | for email | Verification and password-reset mail |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | optional | Google sign-in; register `{APP_BASE_URL}/api/auth/google/callback` |
-| `CLOUDINARY_*` | optional | Image uploads |
+| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | for photos | Avatars, message photos and post photos. All three, or the upload routes answer 503 and the UI hides its photo controls; text-only posts still work. |
 | `PAYMENT_PROVIDER` | optional | `flutterwave` (default) or `squad` — the pre-selected gateway |
 | `FLUTTERWAVE_SECRET_KEY`, `FLUTTERWAVE_PUBLIC_KEY`, `FLUTTERWAVE_ENCRYPTION_KEY`, `FLUTTERWAVE_CURRENCY`, `FLUTTERWAVE_WEBHOOK_HASH` | for Flutterwave | `FLUTTERWAVE_WEBHOOK_HASH` is the dashboard's secret hash; without it webhooks are refused (401) |
 | `SQUAD_SECRET_KEY`, `SQUAD_PUBLIC_KEY`, `SQUAD_CURRENCY`, `SQUAD_API_BASE` | for Squad | Test keys use `https://sandbox-api-d.squadco.com`; live keys use `https://api-d.squadco.com` |
@@ -75,11 +75,29 @@ These are limits of the platform, not of the app:
 * **Background jobs.** Nothing long-running can live in the function; scheduled
   work has to be Vercel Cron hitting a route, or a separate worker.
 
-## 6. Verify after deploying
+## 6. Installable app (PWA)
+
+`/manifest.webmanifest` and `/sw.js` are served by the function at the site
+root (see `app/main.py`). That is deliberate: a service worker only controls
+pages under its own URL, so serving it from `/static/` would register it and let
+it cache nothing that matters.
+
+The worker caches the app's own static assets and an offline card, and never
+caches a page or an API response — every page here renders per account, so a
+cached document would show one person's messages or orders to the next. A
+navigation that cannot reach the network shows `/static/offline.html` instead of
+a stale copy, which in a marketplace with prices is the honest answer.
+
+Changing `public/sw.js` requires bumping `VERSION` in `app/static/sw.js`; the
+activate handler deletes every cache that does not match it.
+
+## 7. Verify after deploying
 
 ```bash
 curl -i https://<deployment>/health/live     # {"status":"ok"}
 curl -i https://<deployment>/health/ready    # {"status":"ok","database":"reachable"}
+curl -i https://<deployment>/manifest.webmanifest   # application/manifest+json
+curl -i https://<deployment>/sw.js                  # text/javascript, Service-Worker-Allowed: /
 ```
 
 Then open `/marketplace` (static CSS/JS and product photos load), sign in, and

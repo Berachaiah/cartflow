@@ -1,0 +1,42 @@
+{
+  "name": "CartFlow — campus marketplace",
+  "short_name": "CartFlow",
+  "description": "Campus shops, listings and a social feed in one app: buy from students and brands, or open a shop of your own.",
+  "id": "/",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F5F3EF",
+  "theme_color": "#F5F3EF",
+  "lang": "en-NG",
+  "categories": ["shopping", "social"],
+  "icons": [
+    {
+      "src": "/static/images/favicon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/images/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Shop",
+      "short_name": "Shop",
+      "url": "/marketplace?source=pwa",
+      "icons": [{ "src": "/static/images/favicon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Messages",
+      "short_name": "Messages",
+      "url": "/messages?source=pwa",
+      "icons": [{ "src": "/static/images/favicon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

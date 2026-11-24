@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
@@ -61,7 +63,36 @@ app.add_middleware(RequestContextMiddleware)
 register_exception_handlers(app)
 
 # --- Static assets: /static/css, /static/js, /static/images --------------
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+
+# --- PWA: the two files that must live at the site root -------------------
+#
+# A service worker only controls pages under its own URL path, so `/sw.js` has
+# to be served from the root: the same file under /static/sw.js would control
+# /static/ and nothing else, and the app would never work offline. The manifest
+# is placed at the root for the same reason — its relative `start_url`, `scope`
+# and icon paths resolve from where the browser fetched it.
+#
+# `Cache-Control: no-cache` on the worker, and never a long max-age: the browser
+# re-fetches the script on every navigation and only replaces the worker when
+# the bytes change, so a cached copy would pin an old deploy indefinitely.
+@app.get("/sw.js", include_in_schema=False)
+async def service_worker():
+    return FileResponse(
+        _STATIC_DIR / "sw.js",
+        media_type="text/javascript",
+        headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"},
+    )
+
+
+@app.get("/manifest.webmanifest", include_in_schema=False)
+async def web_manifest():
+    return FileResponse(
+        _STATIC_DIR / "manifest.webmanifest",
+        media_type="application/manifest+json",
+    )
 
 # --- Health checks (PRD Ch.12 sec 40) ------------------------------------
 @app.get("/health/live", include_in_schema=False)

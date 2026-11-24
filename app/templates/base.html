@@ -86,6 +86,27 @@
 </script>
 <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', path='images/favicon-192.png') }}">
 
+{# PWA. The manifest and the worker are served from the ROOT, not from
+   /static — a service worker only controls pages beneath its own URL, so
+   /static/sw.js would control the assets folder and nothing else. #}
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="application-name" content="CartFlow">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="CartFlow">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" sizes="192x192" href="{{ url_for('static', path='images/favicon-192.png') }}">
+<script>
+  /* Registration is deferred to `load` so the worker's own fetches (it caches
+     the stylesheets on install) never compete with the first paint. Failure is
+     silent and expected: Safari private mode and older browsers refuse, and a
+     page that works without a worker does not need to warn anyone about it. */
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('/sw.js').catch(function () {});
+    });
+  }
+</script>
+
 {# The `tailwind.config = {...}` block that stood here moved to
    tailwind.config.js, verbatim. It had to go rather than stay harmlessly: with
    the CDN gone there is no `tailwind` global, so it would throw ReferenceError
