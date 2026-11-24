@@ -16,6 +16,7 @@ from app.routers import (
     messages,
     organizations,
     pages,
+    payments,
     posts,
     universities,
     users,
@@ -93,6 +94,8 @@ app.include_router(users.router)
 app.include_router(business.router)
 app.include_router(messages.router)
 app.include_router(posts.router)
+# Flutterwave: the checkout call, its redirect back, and the signed webhook.
+app.include_router(payments.router)
 # The messaging socket. Registered like any other router — it declares
 # @router.websocket, so there is nothing special to mount, and no middleware here
 # touches it: SessionMiddleware only reads the cookie the handshake already

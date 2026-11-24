@@ -18,6 +18,7 @@ from app.services import avatar as avatar_service
 from app.services import catalog
 from app.services import follow as follow_service
 from app.services import messaging as messaging_service
+from app.services import payments as payments_service
 from app.services import posts as posts_service
 from app.services import products as products_service
 from app.services import google_oauth
@@ -489,6 +490,9 @@ async def marketplace(
             user,
             page_title="Shop",
             active_nav="marketplace",
+            # Which gateways the cart footer may offer. Passed from settings so a
+            # deployment with only one key shows no picker instead of a dead one.
+            payment_providers=payments_service.enabled_providers(),
             **(await catalog.catalog_context(db)),
         ),
     )
@@ -724,14 +728,31 @@ async def orders(
     the flag is a denormalized mirror and can drift.
     """
     business = None
+    payments: list[dict] = []
     if user is not None:
         business = await OrganizationRepository(db).get_owned_by_user(user.id)
+        # Real rows now that Flutterwave is connected: every checkout attempt is
+        # a payment, and a successful one belongs on this page. The behavioural
+        # panels below the list are unchanged — they explain the same system.
+        payments = [
+            payments_service.to_receipt(p)
+            for p in await payments_service.for_user(db, user.id)
+        ]
+
+    counts = {"current": 0, "completed": 0, "cancelled": 0, "refunded": 0}
+    for row in payments:
+        counts[row["tab"]] = counts.get(row["tab"], 0) + 1
 
     return templates.TemplateResponse(
         request=request,
         name="orders.html",
         context=_page_ctx(
-            user, page_title="Orders", active_nav="orders", business=business
+            user,
+            page_title="Orders",
+            active_nav="orders",
+            business=business,
+            payments=payments,
+            payment_counts=counts,
         ),
     )
 

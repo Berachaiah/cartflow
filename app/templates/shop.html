@@ -39,9 +39,10 @@
       honest to build client-side. The storage shape lives in
       static/js/cartflow-cart.js because /product/{slug} writes to the same cart —
       two pages inventing their own line shape is how a cart loses items. What it
-      will NOT do is pretend to check out: `POST /api/checkout` does not exist,
-      there is no payments integration and no `orders` table, so the checkout
-      button says so instead of faking a receipt. Same rule for Save (doc 12 §19)
+      does not fake a checkout either: the button posts `{slug, qty}` to
+      `POST /api/payments/checkout`, the server prices it from the catalogue, and
+      the browser is sent to the chosen gateway's hosted page (Flutterwave or
+      Squad). No card detail is ever typed into this app. Same rule for Save (doc 12 §19)
       — device-local, and the copy says so rather than implying the account synced.
 
    NO INLINE HANDLERS ON GENERATED MARKUP. Every JS-built row (cart lines) uses
@@ -578,12 +579,29 @@
                 <span class="text-[12.5px] font-bold">Grand total</span>
                 <span id="sumTotal" class="font-display text-[17px] font-black">₦0</span>
             </div>
+            {% if payment_providers | length > 1 %}
+            {# Two gateways, so the buyer picks. The value is only a preference:
+               the server refuses a provider that is not enabled, and the amount
+               is computed server-side either way. #}
+            <label for="payProvider" class="block text-[11px] text-muted mt-2 mb-1">Pay with</label>
+            <select id="payProvider"
+                    class="w-full bg-card border border-border rounded-full px-3 py-2 text-[12.5px] font-semibold">
+                {% for p in payment_providers %}
+                <option value="{{ p.key }}">{{ p.label }}</option>
+                {% endfor %}
+            </select>
+            {% endif %}
             <button type="button" id="checkoutBtn"
                     class="mt-2 w-full bg-primary text-background font-bold rounded-full py-3 text-[14px] btn-glow">
                 Checkout
             </button>
             <p class="text-center text-[10.5px] text-muted mt-1.5 leading-snug">
-                The cart is real; CartFlow payments and escrow aren't live yet.
+                {% if payment_providers %}
+                Paid securely through {{ payment_providers | map(attribute='label') | join(' or ') }} —
+                card, bank transfer or USSD. Your card details never touch CartFlow.
+                {% else %}
+                Card payments are not configured on this deployment yet.
+                {% endif %}
             </p>
         </div>
     </div>
@@ -627,9 +645,8 @@
 <script>
 
 /* ===================== SHOP =====================
-   No network calls: `GET /api/products`, `GET /api/cart` and `POST /api/checkout`
-   (doc 12 §26, doc 13 §19) do not exist yet, so everything here works off the
-   cards the server already rendered.
+   One network call: the checkout POST. Browsing and cart maths work off the
+   cards the server already rendered, so nothing here needs a products API.
 
    THE CARD IS THE SINGLE SOURCE OF TRUTH. Every fact about a product lives on
    its `.shop-card` dataset; the details sheet, the rails, the cart lines and the
@@ -1183,11 +1200,50 @@ function paintCart(){
     document.getElementById('sumTotal').textContent = fmt(payable);
 }
 
-/* Doc 13 §19 lists POST /api/checkout. It does not exist, there is no payment
-   provider wired and no `orders` table, so this says so instead of showing a
-   receipt for an order nobody will ever fulfil. */
-document.getElementById('checkoutBtn').addEventListener('click', () => {
-    showToast('Checkout needs CartFlow payments and escrow, which are not live yet. Your cart is saved.');
+/* ===================== CHECKOUT → FLUTTERWAVE =====================
+
+   The cart posts as {slug, qty} and nothing else. That is the whole security
+   story: the server re-reads the catalogue and computes the amount, so a cart
+   edited in DevTools cannot become a price. The response is the hosted checkout
+   URL, and the browser leaves for Flutterwave — the card number is typed there,
+   never here.
+
+   The cart is deliberately NOT cleared before the redirect. If the buyer closes
+   Flutterwave without paying, they come back to a cart that still has their
+   items; it is cleared on the Orders page once a payment is confirmed. */
+document.getElementById('checkoutBtn').addEventListener('click', async () => {
+    const lines = window.CartFlowStore.readCart();
+    if (!lines.length) { showToast('Your cart is empty.'); return; }
+
+    const btn = document.getElementById('checkoutBtn');
+    const label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Opening checkout…';
+
+    try {
+        const picker = document.getElementById('payProvider');
+        const r = await fetch('/api/payments/checkout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: lines, provider: picker ? picker.value : undefined }),
+        });
+        if (r.status === 401) { location.href = '/login?next=/marketplace'; return; }
+
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) {
+            /* The server's message is the useful one ("Only 2 left of …"), and
+               it is already written for a shopper. */
+            showToast((body.error && body.error.message) || 'Could not start checkout. Try again.');
+            return;
+        }
+        if (!body.checkout_url) { showToast('The payment page did not open. Try again.'); return; }
+        location.href = body.checkout_url;
+    } catch (e) {
+        showToast('Could not reach the payment service. Check your connection.');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = label;
+    }
 });
 
 /* ===================== ONE DELEGATED LISTENER =====================

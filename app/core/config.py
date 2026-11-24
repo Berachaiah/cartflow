@@ -90,9 +90,52 @@ class Settings(BaseSettings):
     CLOUDINARY_FOLDER: str = "cartflow"
 
     # --- Payments --------------------------------------------------------
-    PAYMENT_PROVIDER: Literal["anchor", "paystack"] = "paystack"
+    # Which gateway the Shop offers by default. Flutterwave and Squad are both
+    # wired (the Shop lets the buyer pick per checkout); Anchor and Paystack are
+    # named but not implemented, so they are never offered.
+    PAYMENT_PROVIDER: Literal["anchor", "paystack", "flutterwave", "squad"] = "flutterwave"
     ANCHOR_API_KEY: str | None = None
     PAYSTACK_SECRET_KEY: str | None = None
+
+    # Flutterwave (https://developer.flutterwave.com). Three keys, three jobs:
+    #
+    #   FLUTTERWAVE_SECRET_KEY    server-only. Creates the payment link and verifies
+    #                             a transaction. Never reaches a template, a log line
+    #                             or the browser.
+    #   FLUTTERWAVE_PUBLIC_KEY    safe in the browser; used by Flutterwave's inline
+    #                             checkout and by support to identify the account.
+    #   FLUTTERWAVE_ENCRYPTION_KEY only used by the direct-card API. The hosted
+    #                             checkout in app/services/flutterwave.py does not read
+    #                             it; it lives here so a rotation is one place.
+    #
+    # FLUTTERWAVE_WEBHOOK_HASH is the "Secret hash" set in Dashboard → Webhooks. A
+    # webhook call carries no signature of its own — Flutterwave echoes this value
+    # back in the `verif-hash` header, and that header is the ONLY thing that makes
+    # the POST trustworthy. Unset means webhooks are refused (401), never accepted.
+    FLUTTERWAVE_PUBLIC_KEY: str | None = None
+    FLUTTERWAVE_SECRET_KEY: str | None = None
+    FLUTTERWAVE_ENCRYPTION_KEY: str | None = None
+    FLUTTERWAVE_WEBHOOK_HASH: str | None = None
+    FLUTTERWAVE_CURRENCY: str = "NGN"
+    FLUTTERWAVE_API_BASE: str = "https://api.flutterwave.com/v3"
+
+    # Squad (https://docs.squadco.com). The second gateway, offered beside
+    # Flutterwave so a failed card on one is not a dead end on the other.
+    #
+    #   SQUAD_SECRET_KEY  server-only: initiates a transaction and verifies one.
+    #   SQUAD_PUBLIC_KEY  identifies the merchant; not used by the server-side
+    #                     checkout this app performs, kept for the inline widget.
+    #
+    # Two differences from Flutterwave that the service module handles and callers
+    # should not have to remember:
+    #   * amount is in KOBO on the wire, while every price here is whole naira;
+    #   * a webhook is authenticated by an HMAC of the raw body keyed with the
+    #     SECRET key (header `x-squad-encrypted-body`), not by a shared header
+    #     value. There is no separate hash to configure.
+    SQUAD_PUBLIC_KEY: str | None = None
+    SQUAD_SECRET_KEY: str | None = None
+    SQUAD_CURRENCY: str = "NGN"
+    SQUAD_API_BASE: str = "https://sandbox-api-d.squadco.com"
 
     # --- Email (Resend) -----------------------------------------------
     RESEND_API_KEY: str | None = None
@@ -189,6 +232,35 @@ class Settings(BaseSettings):
         EMAIL_FROM — same shape as `google_redirect_uri`, and for the same
         reason: a feature should not need extra configuration to work at all."""
         return self.REPORTS_EMAIL or self.EMAIL_FROM
+
+    @property
+    def flutterwave_enabled(self) -> bool:
+        """Checkout is offered only when the SECRET key exists, because the secret
+        is the only one that can create a payment link or verify one. Same shape as
+        `google_oauth_enabled`: with no credentials the Shop's checkout button
+        refuses with a clear message instead of a redirect into a 502."""
+        return bool(self.FLUTTERWAVE_SECRET_KEY)
+
+    @property
+    def squad_enabled(self) -> bool:
+        """Same rule as Flutterwave: no secret key, no checkout. A half-configured
+        gateway must not appear as a button that 502s on tap."""
+        return bool(self.SQUAD_SECRET_KEY)
+
+    @property
+    def enabled_payment_providers(self) -> list[dict]:
+        """The gateways the Shop may offer, in display order.
+
+        Returned as data rather than booleans so the checkout markup and the
+        checkout endpoint cannot disagree about which providers exist: the same
+        list builds the picker and validates the posted `provider`.
+        """
+        providers: list[dict] = []
+        if self.flutterwave_enabled:
+            providers.append({"key": "flutterwave", "label": "Flutterwave"})
+        if self.squad_enabled:
+            providers.append({"key": "squad", "label": "Squad"})
+        return providers
 
     @property
     def media_enabled(self) -> bool:

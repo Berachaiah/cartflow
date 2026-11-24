@@ -182,16 +182,53 @@
                     class="ord-tab shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] whitespace-nowrap border transition-colors {{ 'ord-tab-on border-transparent font-semibold' if loop.first else 'glass border-border' }}">
                 <span class="material-symbols-outlined text-[16px]" aria-hidden="true">{{ t.icon }}</span>
                 {{ t.label }}
-                <span class="text-[10.5px] font-semibold opacity-70">0</span>
+                <span class="text-[10.5px] font-semibold opacity-70">{{ payment_counts[t.key] }}</span>
             </button>
             {% endfor %}
         </div>
     </div>
 
+    {# A tab shows its real rows when there are any, and the honest empty state
+       when there are not. `payments` are Flutterwave checkouts: a successful one
+       is money that actually moved, which is exactly what this page is for. No
+       row is ever a sample — every line below came from a row in `payments`. #}
     {% for t in tabs %}
     <section id="ordPanel-{{ t.key }}" role="tabpanel" aria-labelledby="ordTab-{{ t.key }}"
              class="ord-panel" {% if not loop.first %}hidden{% endif %}>
+        {% set rows = payments | selectattr("tab", "equalto", t.key) | list %}
+        {% if rows %}
+        <div class="glass panel divide-y divide-border">
+            {% for pay in rows %}
+            <div class="px-3.5 py-3 flex items-start gap-3">
+                <span class="w-9 h-9 rounded-xl bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0" aria-hidden="true">
+                    <span class="material-symbols-outlined text-[19px] text-primary">receipt_long</span>
+                </span>
+                <div class="min-w-0 flex-1">
+                    <p class="text-[13px] font-semibold flex items-center gap-2 flex-wrap">
+                        {{ pay.title }}
+                        {% if pay.status == "successful" %}
+                        <span class="text-[9.5px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-success/15 border border-success/30 text-success">Paid</span>
+                        {% else %}
+                        <span class="text-[9.5px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-card border border-border text-muted">{{ pay.status | capitalize }}</span>
+                        {% endif %}
+                    </p>
+                    <p class="caption-text text-[12px] mt-0.5 truncate">
+                        {{ pay.business }} · {{ pay.item_count }} item{{ '' if pay.item_count == 1 else 's' }} · via {{ pay.provider_label }} · {{ pay.reference }}
+                    </p>
+                </div>
+                <span class="text-[13px] font-bold shrink-0">{{ pay.amount_text }}</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% if t.key == "current" %}
+        <p class="caption-text text-[12px] mt-2 leading-snug">
+            Paid lines are confirmations from Flutterwave. Arranging pickup or delivery is
+            between you and the business — message them from the Shop or your feed.
+        </p>
+        {% endif %}
+        {% else %}
         {{ empty(t.icon, t.title, t.body, t.cta, t.href) }}
+        {% endif %}
     </section>
     {% endfor %}
 
@@ -340,12 +377,11 @@
             <div class="px-3.5 py-3 flex items-start gap-3">
                 <span class="material-symbols-outlined text-[19px] text-muted shrink-0 mt-0.5" aria-hidden="true">download</span>
                 <div class="min-w-0">
-                    <p class="text-[13px] font-semibold flex items-center gap-2 flex-wrap">
-                        Receipts {{ soon("no orders or payments table yet — doc 14 §25") }}
-                    </p>
+                    <p class="text-[13px] font-semibold">Receipts</p>
                     <p class="caption-text text-[12px] mt-0.5 leading-snug">
-                        Every order will come with a receipt — order number, items, prices, payment
-                        reference, delivery method and date — emailed to you and downloadable here.
+                        Every payment above carries its own reference from the gateway that took it
+                        (Flutterwave or Squad) — that is the number to quote to your bank or to
+                        support. Emailed receipts arrive with order fulfilment.
                     </p>
                 </div>
             </div>
