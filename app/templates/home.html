@@ -764,7 +764,10 @@ async function cfSubmitPost(event){
 
     const data = new FormData();
     data.append('body', body);
-    if (file) data.append('file', file);
+    // Repeated `files` parts, which is what /api/posts reads. A single photo is
+    // just the one-part case, so the inline composer and the full /create page
+    // post through the same field rather than two shapes of request.
+    if (file) data.append('files', file);
 
     button.disabled = true;
     const original = button.textContent;

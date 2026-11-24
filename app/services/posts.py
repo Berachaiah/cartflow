@@ -9,6 +9,7 @@ real. Every key here is one the card reads.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,6 +31,10 @@ MAX_BODY_CHARS = 2000
 # Sub-path under CLOUDINARY_FOLDER, alongside avatars/ and messages/, so a bad
 # upload can be traced to the feature that made it.
 _POST_SUBFOLDER = "posts"
+
+# Product doc 06 §7: ten images per post. The card renders them as a carousel, so
+# the limit is about upload cost and a sane caption-to-photo ratio, not layout.
+MAX_POST_IMAGES = 10
 
 
 def _thousands(value: int) -> str:
@@ -144,23 +149,33 @@ async def create_post(
     *,
     author: User,
     body: str,
-    file: UploadFile | None = None,
+    files: Sequence[UploadFile] | None = None,
 ) -> dict:
-    """Publish a post by `author`, optionally with one photo.
+    """Publish a post by `author`, with up to MAX_POST_IMAGES photos.
+
+    Open to every account, not just businesses: doc 06 §6 gives students image,
+    video and text posts, and only the product-tagging half is business-only. The
+    author's `is_seller` flag is never consulted here — a student with a phone
+    camera and something to say is the point of the feed.
 
     Order matters for the same reason it does in `avatar_service.set_avatar`: the
-    caption is validated, the image is uploaded, and only then is a row written.
-    A rejected file or a Cloudinary outage therefore leaves the feed exactly as
-    it was, instead of a post that says something the author never sent.
+    caption is validated, the images are uploaded, and only then is a row
+    written. A rejected file or a Cloudinary outage therefore leaves the feed
+    exactly as it was, instead of a post that says something the author never
+    sent.
 
-    The photo is stored as a DELIVERY URL (sized, `c_limit`) rather than the
+    Each photo is stored as a DELIVERY URL (sized, `c_limit`) rather than the
     original `secure_url`, because the card renders every image at 4:5 and
     serving a 12 MP camera file into it would spend the viewer's data on pixels
-    that are cropped away. The `media` row keeps the `public_id`, so a later
+    that are cropped away. The `media` rows keep the `public_id`s, so a later
     change to that size needs no re-upload.
     """
     text = (body or "").strip()
-    if not text and file is None:
+    # A browser submits an empty file input as one part with no filename; those
+    # are not photos, and counting them would fail a text-only post at the limit.
+    uploads = [f for f in (files or []) if f is not None and f.filename]
+
+    if not text and not uploads:
         raise ValidationAppError(
             "Write something or add a photo before posting.",
             fields={"body": "A post needs a caption or a photo."},
@@ -170,30 +185,38 @@ async def create_post(
             f"That post is too long. Keep it under {MAX_BODY_CHARS} characters.",
             fields={"body": f"Maximum is {MAX_BODY_CHARS} characters."},
         )
+    if len(uploads) > MAX_POST_IMAGES:
+        raise ValidationAppError(
+            f"That's too many photos. A post can have up to {MAX_POST_IMAGES}.",
+            fields={"files": f"Maximum is {MAX_POST_IMAGES} photos."},
+        )
 
     images: list[dict] | None = None
-    if file is not None:
+    if uploads:
         # 503, not 422, when the server has no Cloudinary credentials — that is
         # our configuration problem, not something the author can fix by picking
         # a different file. Text-only posts keep working in that state.
         media_service.require_media_enabled()
-        data = await media_service.read_image_upload(file)
-        uploaded = await media_service.upload_to_subfolder(
-            data, subfolder=_POST_SUBFOLDER, filename=file.filename or "post"
-        )
-        media = media_service.media_row(uploaded, owner_id=author.id)
-        db.add(media)
-        await db.flush()
+        images = []
+        for upload in uploads:
+            data = await media_service.read_image_upload(upload)
+            stored = await media_service.upload_to_subfolder(
+                data, subfolder=_POST_SUBFOLDER, filename=upload.filename or "post"
+            )
+            db.add(media_service.media_row(stored, owner_id=author.id))
+            await db.flush()
 
-        src = cloudinary_client.build_photo_url(
-            uploaded.public_id, width=media_service.PHOTO_WIDTH
-        )
-        images = [
-            {
-                "src": src,
-                "alt": f"Photo by {author.display_name or author.username}",
-            }
-        ]
+            images.append(
+                {
+                    "src": cloudinary_client.build_photo_url(
+                        stored.public_id, width=media_service.PHOTO_WIDTH
+                    ),
+                    # Each slide carries its own alt: the carousel announces
+                    # "Photo N of M" from the wrapper, so the alt says whose it is
+                    # rather than repeating a position the slide already has.
+                    "alt": f"Photo by {author.display_name or author.username}",
+                }
+            )
 
     post = Post(author_id=author.id, body=text, images=images)
     db.add(post)
@@ -230,6 +253,7 @@ async def toggle_like(
 
 
 __all__ = [
+    "MAX_POST_IMAGES",
     "by_author",
     "create_post",
     "feed",

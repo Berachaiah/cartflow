@@ -21,14 +21,21 @@ router = APIRouter(prefix="/api/posts", tags=["posts"])
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_post(
     body: str = Form(default=""),
-    file: UploadFile | None = File(default=None),
+    files: list[UploadFile] = File(default=[]),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """Publish a post as the signed-in account.
+    """Publish a post as the signed-in account, with up to ten photos.
+
+    Any account may post — student or business (doc 06 §6). Nothing here looks at
+    `is_seller`; the business-only part of posting is product tagging, which the
+    schema already carries and the composer does not offer yet.
+
+    Repeated `files` parts rather than a single `file`: the card is a carousel and
+    the doc allows ten, so the endpoint takes the shape the UI can already send.
 
     Returns the post in the same shape the feed card renders (`to_feed_dict`), so
-    the client can insert it without a second round trip, and so the composer and
+    the client can show it without a second round trip, and so the composer and
     Home cannot disagree about what a post looks like.
 
     A photo with no Cloudinary credentials answers 503 rather than 422: the file
@@ -36,7 +43,7 @@ async def create_post(
     for a different picture.
     """
     return await posts_service.create_post(
-        db, author=current_user, body=body, file=file
+        db, author=current_user, body=body, files=files
     )
 
 

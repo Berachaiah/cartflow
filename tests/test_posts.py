@@ -297,7 +297,7 @@ async def test_a_photo_post_is_uploaded_under_the_posts_folder(
     r = await client.post(
         "/api/posts",
         data={"body": "New colourway"},
-        files={"file": ("tee.png", PNG_1PX, "image/png")},
+        files=[("files", ("tee.png", PNG_1PX, "image/png"))],
     )
     assert r.status_code == 201, r.text
 
@@ -329,7 +329,7 @@ async def test_a_photo_post_is_503_when_the_host_is_not_configured(
     r = await client.post(
         "/api/posts",
         data={"body": "has a photo"},
-        files={"file": ("a.png", PNG_1PX, "image/png")},
+        files=[("files", ("a.png", PNG_1PX, "image/png"))],
     )
     assert r.status_code == 503, r.text
 
@@ -393,3 +393,83 @@ async def test_a_post_card_renders_the_authors_profile_photo(
     assert "cartflow/avatars/feedcard123" in body, (
         "the post card fell back to the default avatar for an author who has a photo"
     )
+
+
+# --- 6. the composer screen, open to every account -----------------------
+
+
+async def test_create_is_behind_a_session_and_says_where_to_return(client: AsyncClient):
+    """A signed-out visit redirects, carrying the destination.
+
+    Rendering the form anyway would be a textarea that answers 401 on submit; and
+    a bare redirect to /login would drop someone on the feed after signing in,
+    having lost what they came to do.
+    """
+    r = await client.get("/create", follow_redirects=False)
+    assert r.status_code in (303, 307), r.status_code
+    assert r.headers["location"] == "/login?next=/create", r.headers["location"]
+
+
+async def test_a_student_can_open_the_composer(client: AsyncClient):
+    """No seller check. `signup` creates an individual account, and posting is a
+    student feature in doc 06 §6 — only product tagging is business-only."""
+    await _signup_and_login(client, "studentcomposer")
+    r = await client.get("/create")
+    assert r.status_code == 200, r.text
+    assert 'id="postForm"' in r.text
+    assert 'id="postBody"' in r.text
+    assert 'name="files"' in r.text and "multiple" in r.text
+
+
+async def test_the_plus_button_sheet_leads_to_the_composer(client: AsyncClient):
+    """The + button opens the create sheet, and the sheet's first action is the
+    composer. Without this the button leads nowhere near posting."""
+    await _signup_and_login(client, "plusbutton")
+    body = (await client.get("/")).text
+    assert 'id="createSheet"' in body
+    assert 'href="/create"' in body
+
+
+async def test_a_post_can_carry_several_photos(client: AsyncClient, monkeypatch):
+    """Doc 06 §7 allows ten; the card is already a carousel. Two is enough to
+    prove the endpoint takes repeated parts rather than one file."""
+    await _signup_and_login(client, "multiposter")
+
+    async def fake_upload(data, *, folder, public_id, filename="upload"):
+        return UploadedImage(
+            public_id=f"{folder}/{public_id}",
+            secure_url="https://res.cloudinary.com/dzgslgj16/image/upload/x.png",
+            width=1,
+            height=1,
+            format="png",
+            bytes=len(data),
+        )
+
+    monkeypatch.setattr(cloudinary_client, "upload_image", fake_upload)
+
+    r = await client.post(
+        "/api/posts",
+        data={"body": "Two shots of the same fit"},
+        files=[
+            ("files", ("one.png", PNG_1PX, "image/png")),
+            ("files", ("two.png", PNG_1PX, "image/png")),
+        ],
+    )
+    assert r.status_code == 201, r.text
+    media = r.json()["media"]
+    assert len(media) == 2, media
+    assert all(m["src"].startswith("https://res.cloudinary.com/") for m in media)
+
+
+async def test_too_many_photos_is_a_clear_422(client: AsyncClient, monkeypatch):
+    """Eleven photos is refused with a message about the limit, not a 500 and not
+    a silently truncated post."""
+    await _signup_and_login(client, "toomanyphotos")
+
+    async def fake_upload(data, *, folder, public_id, filename="upload"):
+        return UploadedImage(public_id=f"{folder}/{public_id}", secure_url="https://res.cloudinary.com/x/y.png")
+
+    monkeypatch.setattr(cloudinary_client, "upload_image", fake_upload)
+    eleven = [("files", (f"p{i}.png", PNG_1PX, "image/png")) for i in range(11)]
+    r = await client.post("/api/posts", data={"body": "eleven"}, files=eleven)
+    assert r.status_code == 422, r.text

@@ -596,10 +596,10 @@ img.emoji{ height:1em; width:1em; margin:0 .05em 0 .1em; vertical-align:-.1em; d
                 {% endif %}
             </nav>
 
-            {# The Create button opens #createSheet below. The composer is not built
-               yet, so the sheet offers the create-shaped actions that really work —
-               a shop, a profile, a conversation — rather than a form that would
-               drop what it was given. #}
+            {# The Create button opens #createSheet below, which leads with "New
+               post" — posting is what a + button in a social feed means, and it
+               is open to every account, not only sellers (doc 06 §6). The rest
+               of the sheet is the other create-shaped actions that really work. #}
             <div class="px-3 group-hover:px-5 transition-[padding] duration-300 mt-4">
                 <button type="button" id="createBtnDesktop" data-cf-create-open
                         aria-haspopup="dialog" aria-label="Create"
@@ -836,6 +836,21 @@ img.emoji{ height:1em; width:1em; margin:0 .05em 0 .1em; vertical-align:-.1em; d
 
             {# --- what works today --- #}
             {% if current_user %}
+            {# First and full-width: the sheet exists because of this action, and
+               making the one thing a + button is for the smallest row in it was
+               backwards. It is a LINK, not a dialog inside a dialog — /create is
+               a real page, so the composer survives a refresh and can be
+               reopened from history. #}
+            <a href="/create"
+               class="w-full rounded-2xl bg-primary hover:bg-primaryDark text-background font-bold px-4 py-3.5 flex items-center gap-3 mb-4 transition">
+                <span class="material-symbols-outlined text-[22px]" aria-hidden="true">edit_square</span>
+                <span class="min-w-0 flex-1 text-left">
+                    <span class="block text-sm font-bold">New post</span>
+                    <span class="block text-[12px] font-medium opacity-80 mt-0.5">A caption, photos, or both</span>
+                </span>
+                <span class="material-symbols-outlined text-[20px] shrink-0" aria-hidden="true">chevron_right</span>
+            </a>
+
             <p class="section-label">Ready now</p>
             <div class="space-y-2">
                 {% if current_user.is_seller %}

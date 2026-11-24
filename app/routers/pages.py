@@ -154,6 +154,37 @@ async def home(
     )
 
 
+@router.get("/create", response_class=HTMLResponse)
+async def create_post_page(
+    request: Request,
+    user: User | None = Depends(get_current_user_optional),
+):
+    """The Create Post screen (doc 06 §4-7).
+
+    Signed out, this redirects rather than rendering a form that would answer 401
+    on submit — and it says where to come back to, so logging in lands the person
+    in the composer they asked for instead of on the feed.
+
+    No seller check: doc 06 §6 gives students image and text posts. Only the
+    product-tagging half of posting belongs to businesses, and that is a control
+    this screen does not offer rather than an account rule it enforces.
+    """
+    if user is None:
+        return RedirectResponse("/login?next=/create", status_code=303)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="composer.html",
+        context=_page_ctx(
+            user,
+            page_title="New post",
+            active_nav="create",
+            media_enabled=settings.media_enabled,
+            max_images=posts_service.MAX_POST_IMAGES,
+        ),
+    )
+
+
 # --- Signup / organization directory (Milestone 1) --------------------
 
 @router.get("/signup", response_class=HTMLResponse)
