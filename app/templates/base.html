@@ -543,11 +543,10 @@ img.emoji{ height:1em; width:1em; margin:0 .05em 0 .1em; vertical-align:-.1em; d
                 {% endif %}
             </nav>
 
-            {# The Create button. Doc 04 §6 lists it as "Create Post (Business)",
-               but there is no posts table — so rather than gate the button on
-               is_seller and open a form that can't save, it opens #createSheet
-               below, which offers the actions that DO exist and names the ones
-               that don't. #}
+            {# The Create button opens #createSheet below. The composer is not built
+               yet, so the sheet offers the create-shaped actions that really work —
+               a shop, a profile, a conversation — rather than a form that would
+               drop what it was given. #}
             <div class="px-3 group-hover:px-5 transition-[padding] duration-300 mt-4">
                 <button type="button" id="createBtnDesktop" data-cf-create-open
                         aria-haspopup="dialog" aria-label="Create"
@@ -759,37 +758,18 @@ img.emoji{ height:1em; width:1em; margin:0 .05em 0 .1em; vertical-align:-.1em; d
     CREATE SHEET — what the + button opens.
 
     Doc 04 §6 puts "Create Post (Business)" in the sidebar, and doc 06 §4-7
-    specifies the composer. Neither can be built: there is no `posts` table, no
-    `stories`, no `products`, no `media` — and events are Milestone 2. A composer
-    that accepts a caption and an image and then drops both on submit is worse
-    than no composer, so this sheet does two honest things instead:
-
-      1. offers the create-shaped actions that REALLY work today — creating a
-         shop (POST /api/auth/business/upgrade, whose form is the Hub's front
-         door) and editing your profile (PATCH /api/users/me, whose sheet lives
-         on your profile page);
-      2. names the four things that are coming and what each one is waiting on,
-         so tapping + tells you where the product actually is.
+    specifies the composer. The composer is still not built — a form that accepts
+    a caption and an image and then drops both on submit is worse than no form —
+    so this sheet offers the create-shaped actions that REALLY work today:
+    creating a shop (POST /api/auth/business/upgrade, whose form is the Hub's
+    front door) and editing your profile (PATCH /api/users/me, whose sheet lives
+    on your profile page), plus the two places people actually go next.
 
     The seller branch reads `current_user.is_seller` rather than the
     organizations row. That is fine HERE and only here: both branches lead to
     /dashboard, which re-decides on `owner_user_id` itself, so the flag is
     choosing a label, not granting access. base.html has no db session anyway.
     ------------------------------------------------------------------------ #}
-{% set create_soon = [
-    {"icon": "add_photo_alternate", "title": "Post",
-     "body": "Photos, a caption, #hashtags and @mentions.",
-     "waiting": "needs posts + media (doc 06)"},
-    {"icon": "amp_stories", "title": "Story",
-     "body": "A photo or video that expires after 24 hours.",
-     "waiting": "needs stories + media (doc 09)"},
-    {"icon": "sell", "title": "Product",
-     "body": "A listing with price, stock and variants.",
-     "waiting": "needs products (doc 12 §26)"},
-    {"icon": "confirmation_number", "title": "Event",
-     "body": "An event with tickets people scan at the door.",
-     "waiting": "Milestone 2 (doc 17)"}
-] %}
 <div id="createSheet" class="cf-create" role="dialog" aria-modal="true" aria-labelledby="createSheetTitle">
     <div class="cf-create-panel glass w-full sm:max-w-lg rounded-t-[20px] sm:rounded-[20px] overflow-hidden shadow-card">
         <div class="flex items-center justify-between px-5 pt-5 pb-3">
@@ -850,28 +830,36 @@ img.emoji{ height:1em; width:1em; margin:0 .05em 0 .1em; vertical-align:-.1em; d
             </div>
             {% endif %}
 
-            {# --- what is coming, and what it waits on --- #}
-            <p class="section-label mt-5">Coming soon</p>
-            <ul class="divide-y divide-border">
-                {% for c in create_soon %}
-                <li class="cf-soon-row py-3 flex items-start gap-3">
-                    <span class="w-9 h-9 rounded-xl bg-card border border-border flex items-center justify-center shrink-0" aria-hidden="true">
-                        <span class="material-symbols-outlined text-[19px]">{{ c.icon }}</span>
+            {% if current_user %}
+            {# No "coming soon" list. Posts, products and messaging all ship now, so a
+               roadmap under the create button was advertising gaps that no longer
+               exist — and a person deciding what to do with the button does not
+               need a list of what they cannot do. Everything below goes somewhere
+               real. #}
+            <p class="section-label mt-5">More</p>
+            <div class="space-y-2">
+                <a href="/messages" class="glass rounded-2xl p-4 flex items-center gap-3 hover-card">
+                    <span class="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center shrink-0" aria-hidden="true">
+                        <span class="material-symbols-outlined text-[21px] text-primary">chat_bubble</span>
                     </span>
-                    <div class="min-w-0 flex-1">
-                        <p class="text-sm font-semibold flex items-center gap-2 flex-wrap">
-                            {{ c.title }}<span class="cf-soon">{{ c.waiting }}</span>
-                        </p>
-                        <p class="caption-text mt-0.5 leading-relaxed">{{ c.body }}</p>
-                    </div>
-                </li>
-                {% endfor %}
-            </ul>
-            <p class="caption-text mt-4 leading-relaxed">
-                Nothing here is hidden behind a paywall or a waitlist — these simply have no
-                storage behind them yet, and CartFlow would rather say so than take a post it
-                cannot keep.
-            </p>
+                    <span class="min-w-0 flex-1">
+                        <span class="block text-sm font-semibold">New message</span>
+                        <span class="block caption-text mt-0.5">Talk to a seller or a friend.</span>
+                    </span>
+                    <span class="material-symbols-outlined text-muted shrink-0" aria-hidden="true">chevron_right</span>
+                </a>
+                <a href="/marketplace" class="glass rounded-2xl p-4 flex items-center gap-3 hover-card">
+                    <span class="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center shrink-0" aria-hidden="true">
+                        <span class="material-symbols-outlined text-[21px] text-primary">storefront</span>
+                    </span>
+                    <span class="min-w-0 flex-1">
+                        <span class="block text-sm font-semibold">Browse the Shop</span>
+                        <span class="block caption-text mt-0.5">Every listing on campus, with its real price.</span>
+                    </span>
+                    <span class="material-symbols-outlined text-muted shrink-0" aria-hidden="true">chevron_right</span>
+                </a>
+            </div>
+            {% endif %}
         </div>
     </div>
 </div>

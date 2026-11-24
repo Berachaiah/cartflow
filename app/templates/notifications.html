@@ -153,21 +153,6 @@
         {% endif %}
     </section>
 
-    <!-- ===================== NOT LIVE YET (doc §4) =====================
-         The five other categories, named rather than faked. One panel, one row
-         each — the whole roadmap in the height a single fake notification card
-         would have cost. -->
-    <section aria-labelledby="actPendingHead">
-        {{ section_head("Coming to this inbox",
-                        "Everything below is specified and unbuilt. Each row names what it is
-                         waiting on, so nothing here reads as a feature you have missed.",
-                        id="actPendingHead") }}
-        <div class="glass panel px-3.5 py-1.5 divide-y divide-border">
-            {% for p in pending %}
-            {{ pending_row(p.icon, p.title, p.body, p.reason) }}
-            {% endfor %}
-        </div>
-    </section>
 
     <!-- A working route, not a promise: notification preferences (doc §17) are
          part of Settings, and the toggles that exist there are real. -->

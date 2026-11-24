@@ -404,25 +404,28 @@ async def test_messages_invents_no_conversation(client: AsyncClient):
         )
 
 
-async def test_messages_explains_the_one_message_rule(client: AsyncClient):
-    """Doc 10 §6 — the rule that actually changes how someone behaves.
+async def test_messages_does_not_carry_a_paragraph_of_explanation(client: AsyncClient):
+    """Doc 10 §6 is real, but the inbox does not lecture about it.
 
-    Still on the page, and still worth a test, but it has moved: it used to be the
-    whole point of the screen and it is now a line in the empty states, said where
-    it is about to matter. Reading it before messaging a seller is different from
-    discovering it after being ignored.
+    Inverted on purpose. This used to assert that a four-line paragraph under the
+    tabs — "A first message to someone you don't follow goes to their requests
+    until they reply..." — was present. It was correct and it was the wrong shape
+    for a messenger: no messaging platform puts an essay above the conversation
+    list. The rule still exists in the product (the Requests tab, the pending
+    state, the composer's message); it just is not a wall of text on the first
+    screen, and the tabs label themselves.
+
+    What replaces it is the layout: the tabs render from counts, and Requests is
+    visibly one of them.
     """
     await _sign_in(client)
     r = await client.get("/messages")
 
-    assert "goes to their requests until they reply" in r.text, (
-        "the empty inbox no longer says where a first message to a stranger goes, which is the "
-        "half of §6 that changes what someone types"
+    assert "goes to their requests until they reply" not in r.text, (
+        "the explaining paragraph is back under the tabs — it costs four lines of the "
+        "smallest screen in the app and no messenger ships it"
     )
-    assert "their one message waits here until you reply or delete it" in r.text, (
-        "the Requests tab's empty state lost the other half — that the sender gets exactly one "
-        "and cannot follow it up"
-    )
+    assert 'id="cm-tabs"' in r.text, "Requests/Unread/All tabs must still be there"
 
 
 async def test_messages_offers_the_controls_it_can_now_honour(client: AsyncClient):

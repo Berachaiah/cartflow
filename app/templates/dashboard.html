@@ -272,7 +272,10 @@
                 {{ metric("Active products", catalog_stats.active if catalog_stats else 0, (catalog_stats.stock ~ " units in stock.") if catalog_stats else "Nothing listed yet.", "sell", live=catalog_stats is not none) }}
                 {{ metric("Active events", "0", "No events on sale.", "event") }}
                 {{ metric("Followers", stats.followers, "People following your account.", "group", live=true) }}
-                {{ metric("Unread messages", "0", "Messaging isn't built yet.", "chat_bubble") }}
+                {# Real: every thread with something new, from the same count the
+                   nav badge reads. It said "Messaging isn't built yet" long after
+                   messaging shipped. #}
+                {{ metric("Unread messages", unread_messages, "Threads with something new." if unread_messages else "Nothing unread.", "chat_bubble", live=true) }}
             </div>
 
             <!-- Low stock (§9) + Recent reviews (§25) — both empty, for
@@ -340,24 +343,43 @@
         <!-- ===================== PRODUCTS (doc 16 §7-9) ===================== -->
         <section id="hubPanel-products" class="hub-panel space-y-4" role="tabpanel" aria-labelledby="hubTab-products" hidden>
             {{ panel_title("Products", "Create, price, restock and discount what you sell.") }}
-            {{ empty("sell", "No products yet",
-                     "There's no products table on CartFlow yet, so nothing can be listed — including by us. When it ships, what you add here appears in Shop and on your profile straight away.",
-                     "See what Shop looks like", "/marketplace", tone="quiet") }}
-            <div class="glass panel panel-pad divide-y divide-border">
-                <h3 class="text-[13px] font-semibold pb-2.5">Coming to this section</h3>
-                {{ pending_row("add_box", "Create &amp; edit products",
-                               "Name, price, images, description, category, stock. Edit, archive or delete any time.",
-                               "Needs the products table") }}
-                {{ pending_row("inventory_2", "Inventory",
-                               "Quantity, reserved and available per product — reserved updates itself when a payment succeeds.",
-                               "Needs the inventory table (doc 16 §30)") }}
-                {{ pending_row("percent", "Discounts",
-                               "Set a was-price and CartFlow shows the percentage off across Shop.",
-                               "Needs the products table") }}
-                {{ pending_row("notification_important", "Low stock threshold",
-                               "Pick the level that counts as low, per product, and get notified when you hit it.",
-                               "Needs the inventory_logs table (doc 16 §30)") }}
+            {% if business_products %}
+            {# Real rows from the products table — the same projection Shop renders,
+               so a listing here and its own page cannot disagree about name, price
+               or stock. Drafts are included on purpose: this is the owner's view,
+               and `by_owner` is the only listing query that returns them.
+
+               This panel used to say there was no products table. That was true
+               when it was written and a contradiction the moment the products
+               slice shipped, which is exactly the kind of stale sentence that
+               makes a demo look broken. #}
+            <div class="glass panel panel-pad">
+                <h3 class="text-[13px] font-semibold flex items-baseline justify-between gap-2">
+                    Your listings
+                    <span class="caption-text text-[11.5px] font-normal">{{ business_products|length }} total</span>
+                </h3>
+                <ul class="mt-2 divide-y divide-border">
+                    {% for p in business_products %}
+                    <li class="flex items-center gap-3 py-2.5">
+                        <img src="{{ p.image }}" alt="" loading="lazy" class="w-11 h-11 rounded-xl object-cover shrink-0">
+                        <span class="min-w-0 flex-1">
+                            <a href="/product/{{ p.slug }}" class="block text-[13px] font-semibold truncate underline-offset-2 hover:underline">
+                                {{ p.name }}{% if p.status == 'draft' %} <span class="align-middle ml-1 rounded-full bg-card border border-border px-1.5 py-0.5 text-[10px] font-semibold text-muted">Draft</span>{% elif p.status == 'archived' %} <span class="align-middle ml-1 rounded-full bg-card border border-border px-1.5 py-0.5 text-[10px] font-semibold text-muted">Archived</span>{% endif %}
+                            </a>
+                            <span class="caption-text text-[11.5px] block truncate">
+                                {{ naira(p.price) }}{% if p.was %} · was {{ naira(p.was) }}{% endif %} · {{ p.stock }} in stock
+                            </span>
+                        </span>
+                        <a href="/product/{{ p.slug }}" class="shrink-0 text-[11.5px] font-semibold text-primary">View</a>
+                    </li>
+                    {% endfor %}
+                </ul>
             </div>
+            {% else %}
+            {{ empty("sell", "No products yet",
+                     "Your first listing appears in Shop and on your profile the moment it is added.",
+                     "See what Shop looks like", "/marketplace", tone="quiet") }}
+            {% endif %}
         </section>
 
         <!-- ===================== ORDERS (doc 16 §10) ===================== -->

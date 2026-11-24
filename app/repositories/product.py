@@ -66,6 +66,10 @@ def to_catalog_dict(product: Product, *, owner_username: str | None = None) -> d
         "desc": product.description or "",
         "image": product.image_url,
         "alt": product.image_alt or product.name,
+        # Additive, and only for the owner-facing views: the Business Hub's
+        # listings panel is the one place a draft is visible (`by_owner`), and
+        # without the status it would render a draft exactly like a live listing.
+        "status": product.status,
     }
 
 

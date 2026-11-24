@@ -276,5 +276,13 @@ async def test_hub_counts_only_active_listings(client: AsyncClient, db):
     assert rows == 2  # both exist in the table
 
     body = (await client.get("/dashboard")).text
-    assert "Draft One" not in body       # drafts are not stock on the shelf
+    # The METRICS count only active listings: a draft is not stock on the shelf.
     assert "5 units in stock." in body
+    assert "104 units in stock." not in body, (
+        "the draft's 99 units were added to the shelf count"
+    )
+    # The Products panel is the OWNER's view, so the draft is listed there —
+    # labelled, because an unlabelled draft next to live listings is a seller
+    # wondering why nobody is buying it.
+    assert "Draft One" in body
+    assert "Draft" in body, "a draft is listed with no indication that it is one"

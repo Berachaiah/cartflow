@@ -597,7 +597,17 @@ async def dashboard(
     business = None
     stats = None
     catalog_stats = None
+    # The seller's own listings and their unread count. Both panels used to say
+    # the feature did not exist — copy that was true when it was written and a
+    # contradiction by the time the products slice and messaging shipped. They
+    # are fetched here (not in the template) so the panel renders rows, and an
+    # empty list is the only thing that produces the empty state.
+    business_products: list[dict] = []
+    unread_messages = 0
     if user is not None:
+        # Unread is per-VIEWER (it is every thread with something new), not
+        # per-shop, so it is read outside the `business is not None` branch.
+        unread_messages = await messaging_service.unread_count(db, viewer=user)
         business = await OrganizationRepository(db).get_owned_by_user(user.id)
         if business is not None:
             # viewer_id=None: the hub shows counts only, so the extra
@@ -610,6 +620,11 @@ async def dashboard(
             # escrow need orders and payments, so they stay at zero and the
             # template says why.
             catalog_stats = await products_service.stats_for_business(db, business=business)
+            # Drafts included: the owner's own view is the one place a draft is
+            # visible, and `by_owner` is the only listing query that returns them.
+            business_products = await products_service.list_for_business(
+                db, business=business
+            )
 
     return templates.TemplateResponse(
         request=request,
@@ -621,6 +636,8 @@ async def dashboard(
             business=business,
             stats=stats,
             catalog_stats=catalog_stats,
+            business_products=business_products,
+            unread_messages=unread_messages,
             # The seller's own public profile, absolute and from configuration
             # rather than request.base_url — the latter comes from the Host
             # header, so a spoofed one would end up in a link they share.

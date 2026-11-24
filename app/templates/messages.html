@@ -1,5 +1,14 @@
 {% extends "base.html" %}
 {% from "partials/ui.html" import page_head %}
+{% block topbar %}
+{# NO page header on Messages. Every messenger (Instagram DMs, WhatsApp, Telegram)
+   puts the conversation UI at the very top of the window — a 56-64px title bar
+   above a search field and a list is two headers for one screen, and it is the
+   vertical space this page can least afford. The list has its own header row
+   (search + compose) and the thread has its own (avatar, name, actions), so the
+   page identifies itself without a bar above it. The desktop sidebar already
+   carries the CartFlow mark. #}
+{% endblock %}
 {% block content %}
 <link rel="stylesheet" href="/static/css/cartflow-messages.css">
 <div class="cm" id="cm" data-me="{{ current_user.username }}" data-open="{{ open_handle or '' }}" data-share-slug="{{ share_slug or '' }}" data-share-user="{{ share_user or '' }}">
@@ -11,19 +20,6 @@
         <button class="cm-ib p" id="cm-new" type="button" aria-label="New message"><span class="material-symbols-outlined" aria-hidden="true">edit_square</span></button>
       </div>
       <div class="cm-tabs" id="cm-tabs"></div>
-      {# Doc 10 §6, the half that changes what someone types.
-
-         HERE, not in the blank pane, and that is a correction: the thread pane
-         is `display:none` below 1024px (see cartflow-messages.css), so a rule
-         parked there was invisible on the phone — where most of these users
-         are, and where a first message to a stranger is the exact thing about
-         to happen. It sits under the tabs it explains, and it is the same copy
-         at every width.
-
-         Static copy, not a conversation, so it stays server-rendered — ONE
-         RENDERER is about rows and bubbles, and a rule drawn by Jinja cannot
-         disagree with an API payload. #}
-      <p class="cm-rule">A first message to someone you don't follow goes to their requests until they reply. A first message someone sends you lands in Requests, where their one message waits here until you reply or delete it.</p>
       <div class="cm-rows" id="cm-rows"></div>
     </aside>
 
