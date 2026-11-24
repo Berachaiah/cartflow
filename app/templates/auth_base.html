@@ -14,10 +14,19 @@
   when it swaps the card over to a success state.
 #}
 {% extends "base.html" %}
+{% from "partials/theme_switch.html" import theme_switch %}
 
 {% block content %}
 <div class="auth-wrap">
   <div class="auth-card">
+
+    {# Appearance, top-right of the card. A signed-out screen is where the theme
+       choice matters most: this app installs as a PWA, so /login is the first
+       thing a new phone opens, and it is the one screen somebody reaches before
+       they have an account to change a setting in. Right-aligned in its own row
+       above the logo rather than floating over it, so it never collides with the
+       mark at 320px and never covers a tap target. #}
+    <div class="flex justify-end -mb-1">{{ theme_switch() }}</div>
 
     <div id="authHeader">
       <a href="/" aria-label="CartFlow home">

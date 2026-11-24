@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "partials/theme_switch.html" import theme_switch %}
 {% from "partials/avatar.html" import avatar %}
 
 {# ==========================================================================
@@ -399,16 +400,14 @@
             <div class="flex items-center justify-between gap-4">
                 <div class="min-w-0">
                     <p class="text-[13.5px] font-semibold">Appearance</p>
-                    <p class="caption-text text-[11.5px] mt-0.5">Saved on this device</p>
+                    <p class="caption-text text-[11.5px] mt-0.5">Match your device, or pick one</p>
                 </div>
-                {# Delegates to base.html's own toggle rather than reimplementing
-                   it: one place owns the data-theme attribute and the
-                   localStorage key, so the two can't disagree. #}
-                <button type="button" id="themeRowBtn"
-                        class="glass rounded-full px-3 py-1.5 text-[11.5px] font-semibold hover-card flex items-center gap-1.5 shrink-0">
-                    <span id="themeRowIcon" class="material-symbols-outlined text-[15px]" aria-hidden="true">dark_mode</span>
-                    <span id="themeRowLabel">Dark</span>
-                </button>
+                {# The same three-way control the auth screens use, from one
+                   partial. base.html owns the state (cfSetTheme) and marks the
+                   active segment (cfSyncThemeSwitches), so this page needs no
+                   theme JS at all — which is the point: it used to keep its own
+                   copy of the label and could drift from the real theme. #}
+                {{ theme_switch() }}
             </div>
         </div>
 
@@ -500,22 +499,6 @@ document.getElementById('settingsBack').addEventListener('click', () => {
     if (window.history.length > 1) window.history.back();
     else window.location.assign('/@{{ current_user.username }}');
 });
-
-/* ---------- theme ----------
-   Reads the attribute base.html owns rather than keeping its own copy, so the
-   label can't drift from the actual theme after a toggle from the sidebar. */
-(function () {
-    const btn   = document.getElementById('themeRowBtn');
-    const icon  = document.getElementById('themeRowIcon');
-    const label = document.getElementById('themeRowLabel');
-    function sync() {
-        const light = document.documentElement.getAttribute('data-theme') === 'light';
-        icon.textContent  = light ? 'light_mode' : 'dark_mode';
-        label.textContent = light ? 'Light' : 'Dark';
-    }
-    sync();
-    btn.addEventListener('click', () => { toggleTheme(); sync(); });
-})();
 
 /* ---------- log out ---------- */
 document.getElementById('logoutBtn').addEventListener('click', async (e) => {

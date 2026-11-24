@@ -62,23 +62,25 @@
   }
 
   /* ---- theme, resolved BEFORE first paint ----
-     Light is the default until someone chooses otherwise, and the light palette
-     is expressed as [data-theme="light"] overrides on top of a dark :root. So
-     the attribute has to be on <html> before the first paint or every load
-     flashes the dark palette for a frame and then snaps to light. That is why
-     this is a blocking inline script in <head> and not part of the theme block
-     at the end of <body> — that one runs after the document has already painted.
+     Three preferences: 'light', 'dark' and 'system'. The STORED value is the
+     preference; `data-theme` carries what it resolves to right now. The palette
+     is dark at :root and [data-theme="light"] overrides it, so "system while the
+     OS is dark" sets nothing and "system while the OS is light" sets light.
+     Resolving it here — inline, blocking, before the body paints — is what stops
+     a light-mode phone flashing the dark palette for a frame on every load.
 
-     Absent key means "hasn't chosen", which is deliberately NOT the same as
-     "chose light": only toggleTheme() writes the key. Keep it that way, or the
-     default can never be changed again for existing visitors, and honouring the
-     OS preference later becomes impossible to add. */
+     An ABSENT key means 'system', not light. This app installs as a PWA, and an
+     installed app that ignores the phone's own appearance setting looks broken
+     beside every other app on it. Keeping "hasn't chosen" distinct from "chose
+     light" is also what lets the default keep working for people who never touch
+     the control — set by cfSetTheme(), never by merely rendering a page. */
   try {
-      if (localStorage.getItem('cartflow-theme') === 'dark') {
-          document.querySelector('#themeColorMeta')?.setAttribute('content', '#07111F');
-      } else {
-          document.documentElement.setAttribute('data-theme', 'light');
-      }
+      var cfStored = localStorage.getItem('cartflow-theme');
+      var cfPref = (cfStored === 'light' || cfStored === 'dark' || cfStored === 'system') ? cfStored : 'system';
+      var cfDark = cfPref === 'dark' ||
+          (cfPref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      if (!cfDark) document.documentElement.setAttribute('data-theme', 'light');
+      document.querySelector('#themeColorMeta')?.setAttribute('content', cfDark ? '#07111F' : '#F5F3EF');
   } catch (e) {
       /* private mode / storage disabled — fall through to the light default */
       document.documentElement.setAttribute('data-theme', 'light');
@@ -408,6 +410,36 @@ img.emoji{ height:1em; width:1em; margin:0 .05em 0 .1em; vertical-align:-.1em; d
 }
 .skip-preloader #skeletonLayer{ display:none !important; }
 .skip-preloader #appContent{ opacity:1 !important; }
+
+/* ===================== APPEARANCE SWITCH =====================
+   The three-way control (System / Light / Dark) used by Settings and by the
+   auth screens. Defined here rather than per page because the same markup is a
+   partial: the active segment is driven by `is-active` + `aria-pressed`, which
+   base's cfSyncThemeSwitches() sets, so no page needs its own JS for it.
+
+   A tinted track with a raised active pill, the shape the rest of the app
+   already uses for a small choice, so it reads as one control rather than three
+   separate buttons. */
+.cf-theme-switch{
+  display:inline-flex; align-items:center; gap:2px; padding:3px;
+  border-radius:999px; background:rgba(255,255,255,.06);
+  border:1px solid var(--c-border);
+}
+[data-theme="light"] .cf-theme-switch{ background:rgba(15,23,42,.05); }
+.cf-theme-switch button{
+  width:36px; height:30px; border-radius:999px; display:grid; place-items:center;
+  color:var(--c-muted); cursor:pointer; transition:background .18s ease, color .18s ease;
+}
+.cf-theme-switch button:hover{ color:var(--c-text); }
+.cf-theme-switch button.is-active{
+  background:rgba(255,255,255,.14); color:var(--c-text);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.10);
+}
+[data-theme="light"] .cf-theme-switch button.is-active{
+  background:#fff; box-shadow:0 1px 3px rgba(15,23,42,.16);
+}
+.cf-theme-switch .material-symbols-outlined{ font-size:19px; line-height:1; }
+.cf-theme-switch:focus-within{ outline:2px solid var(--c-ink-primary, #4DA3FF); outline-offset:2px; }
 
 /* ===================== CREATE SHEET =====================
    The + button lives in base, so its sheet does too — and that is exactly why
@@ -901,22 +933,83 @@ img.emoji{ height:1em; width:1em; margin:0 .05em 0 .1em; vertical-align:-.1em; d
    had already visited, and honouring the OS preference later would be
    impossible to add. */
 const html = document.documentElement;
+const CF_THEME_KEY = 'cartflow-theme';
+const CF_THEME_PREFS = ['light', 'dark', 'system'];
+
+/* applyTheme() paints an EFFECTIVE theme ('light' or 'dark'), and does not write
+   to storage. Persisting is cfSetTheme()'s job, so rendering a page never turns
+   "hasn't chosen" into "chose this" — see the head script. */
 function applyTheme(theme){
     const light = theme === 'light';
     if(light) html.setAttribute('data-theme','light');
     else      html.removeAttribute('data-theme');
-    /* Keep the browser chrome in step, or a toggle leaves the status bar the
+    /* Keep the browser chrome in step, or a switch leaves the status bar the
        old palette until the next navigation. */
     document.getElementById('themeColorMeta')?.setAttribute('content', light ? '#F5F3EF' : '#07111F');
 }
-/* toggleTheme() is global on purpose: settings.html's Appearance row calls it
-   directly. Renaming or scoping it silently breaks that page's only theme
-   control, and nothing else would notice. */
-function toggleTheme(){
-    const next = html.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
-    applyTheme(next);
-    try { localStorage.setItem('cartflow-theme', next); } catch (e) { /* storage off — the theme still applies for this page */ }
+
+/* The stored PREFERENCE ('light' | 'dark' | 'system'), never the resolved one. */
+function cfThemePref(){
+    try {
+        const stored = localStorage.getItem(CF_THEME_KEY);
+        return CF_THEME_PREFS.indexOf(stored) !== -1 ? stored : 'system';
+    } catch (e) { return 'system'; }
 }
+
+/* system = follow the device. matchMedia is the only way to know, and it is
+   read at call time so a phone that switched to dark at sunset is honoured on
+   the next page load, or immediately via the listener below. */
+function cfThemeIsDark(pref){
+    if (pref === 'system') return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    return pref === 'dark';
+}
+
+/* Mark the active segment in every switch on the page (Settings has one, the
+   auth screens have one). aria-pressed is set alongside the class so the state
+   is available to a screen reader, not only to the eye. */
+function cfSyncThemeSwitches(pref){
+    document.querySelectorAll('[data-cf-theme]').forEach(function(btn){
+        const on = btn.getAttribute('data-cf-theme') === pref;
+        btn.classList.toggle('is-active', on);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+}
+
+function cfApplyTheme(pref){
+    applyTheme(cfThemeIsDark(pref) ? 'dark' : 'light');
+    cfSyncThemeSwitches(pref);
+}
+
+/* Global on purpose: the switch partial has no script of its own, and any page
+   that includes it gets working buttons through the delegated listener below. */
+function cfSetTheme(pref){
+    if (CF_THEME_PREFS.indexOf(pref) === -1) return;
+    try { localStorage.setItem(CF_THEME_KEY, pref); } catch (e) { /* storage off — the theme still applies for this page */ }
+    cfApplyTheme(pref);
+}
+
+/* Kept for the one caller that wants a binary flip (nothing in the UI uses it
+   now, but a keyboard shortcut or a future control would). */
+function toggleTheme(){
+    cfSetTheme(cfThemeIsDark(cfThemePref()) ? 'light' : 'dark');
+}
+
+document.addEventListener('click', function(e){
+    const btn = e.target.closest('[data-cf-theme]');
+    if (btn) cfSetTheme(btn.getAttribute('data-cf-theme'));
+});
+
+/* Follow the device while the preference is 'system'. Without this the app
+   only re-resolves on navigation, so a phone flipping to dark at night leaves
+   an open tab light until it is reloaded. */
+if (window.matchMedia) {
+    const cfScheme = window.matchMedia('(prefers-color-scheme: dark)');
+    const cfOnScheme = function(){ if (cfThemePref() === 'system') cfApplyTheme('system'); };
+    if (cfScheme.addEventListener) cfScheme.addEventListener('change', cfOnScheme);
+    else if (cfScheme.addListener) cfScheme.addListener(cfOnScheme);
+}
+
+cfApplyTheme(cfThemePref());
 
 /* ===================== SKELETON REVEAL ===================== */
 window.addEventListener('load', () => {

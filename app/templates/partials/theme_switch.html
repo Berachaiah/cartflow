@@ -1,0 +1,35 @@
+{# ==========================================================================
+   Appearance switch — System / Light / Dark, as one segmented control.
+
+   `system` comes FIRST because it is the default when nobody has chosen: an app
+   installed on a phone should look like the rest of that phone until its owner
+   says otherwise. The order then runs light → dark, matching the
+   prefers-color-scheme values.
+
+   Icons, not words: a monitor, a sun and a moon are read faster than three
+   labels at 11px, and the three fit in one row at 320px. Each button keeps an
+   aria-label and an aria-pressed, so the meaning is still there for a screen
+   reader and for a browser that never loads Material Symbols — the icon
+   degrades to the ligature name ("desktop_windows"), which is why the label is
+   spelled out rather than left as a bare glyph.
+
+   No JS here. base.html owns the state (cfSetTheme/cfThemePref), marks the
+   active segment (cfSyncThemeSwitches) and handles the click through one
+   delegated listener, so this partial can be dropped on any page.
+========================================================================== #}
+{% macro theme_switch(extra_class="") %}
+<div class="cf-theme-switch {{ extra_class }}" role="group" aria-label="Appearance">
+  <button type="button" data-cf-theme="system" aria-pressed="false"
+          title="Match your device" aria-label="System theme">
+    <span class="material-symbols-outlined" aria-hidden="true">desktop_windows</span>
+  </button>
+  <button type="button" data-cf-theme="light" aria-pressed="false"
+          title="Light" aria-label="Light theme">
+    <span class="material-symbols-outlined" aria-hidden="true">light_mode</span>
+  </button>
+  <button type="button" data-cf-theme="dark" aria-pressed="false"
+          title="Dark" aria-label="Dark theme">
+    <span class="material-symbols-outlined" aria-hidden="true">dark_mode</span>
+  </button>
+</div>
+{% endmacro %}
