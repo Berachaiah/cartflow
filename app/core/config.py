@@ -137,6 +137,21 @@ class Settings(BaseSettings):
     SQUAD_CURRENCY: str = "NGN"
     SQUAD_API_BASE: str = "https://sandbox-api-d.squadco.com"
 
+    # --- Recommendation / ranking (doc 18) -------------------------------
+    #
+    # The feed is ordered by a model when one has been trained and placed at
+    # RANKING_MODEL_PATH, and stays chronological when it has not. There is no
+    # credentials story here on purpose: the served artifact is a small JSON file
+    # of coefficients, so production needs no MLflow client, no GPU and no cold
+    # start — only the trainer does. MLflow is the registry and the audit trail
+    # (where that file came from), configured in the training environment.
+    RANKING_ENABLED: bool = True
+    RANKING_MODEL_PATH: str = "ml/artifacts/ranker.json"
+    # Read by ml/train_ranker.py, never by the web app. Left here so one .env
+    # describes the whole system rather than the deploy needing a second one.
+    MLFLOW_TRACKING_URI: str | None = None
+    MLFLOW_MODEL_NAME: str = "cartflow-feed-ranker"
+
     # --- Email (Resend) -----------------------------------------------
     RESEND_API_KEY: str | None = None
 

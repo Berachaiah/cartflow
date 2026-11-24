@@ -22,6 +22,7 @@ from app.models.user import User
 from app.repositories.post import PostRepository
 from app.services import avatar as avatar_service
 from app.services import media as media_service
+from app.services import ranking
 
 # The composer's ceiling. Long enough for a caption and a price list, short
 # enough that the card cannot be made unreadable by one account — the feed has
@@ -120,12 +121,46 @@ async def _shape(
     ]
 
 
+# How many posts the ranker is allowed to reorder. A model can only promote a
+# post it was shown, so the candidate pool is wider than the page — but bounded:
+# this is one query on the busiest screen in the app, and an unbounded pool turns
+# "rank the feed" into "scan every post ever written".
+CANDIDATES_PER_PAGE = 3
+MAX_CANDIDATES = 60
+
+
 async def feed(
     db: AsyncSession, *, viewer: User | None, limit: int = 20
 ) -> list[dict]:
-    """Home's posts. Newest first, published only."""
-    rows = await PostRepository(db).feed(limit=limit)
-    return await _shape(db, rows, viewer=viewer)
+    """Home's posts, published only — model-ranked when a model is available.
+
+    Signed-out visitors always get chronological order: personalization needs a
+    viewer, and there is no "anonymous" model to score against.
+
+    With no artifact this is byte-for-byte the old query (newest first), which is
+    the path that runs on a fresh clone and on a deploy where training has not
+    happened yet. Ranking is an enhancement, never a dependency.
+    """
+    repo = PostRepository(db)
+    model = ranking.load_model() if viewer is not None else None
+    if model is None:
+        rows = await repo.feed(limit=limit)
+        return await _shape(db, rows, viewer=viewer)
+
+    pool = min(max(limit * CANDIDATES_PER_PAGE, limit), MAX_CANDIDATES)
+    candidates = await repo.feed(limit=pool)
+    if not candidates:
+        return []
+
+    # One query for "who does this viewer follow", reused for scoring and for the
+    # Follow button on each card, rather than a lookup per candidate.
+    followed = await repo.followed_author_ids(
+        viewer_id=viewer.id, author_ids=[author.id for _, author in candidates]
+    )
+    ranked = ranking.rank(
+        candidates, viewer=viewer, followed_author_ids=followed, model=model
+    )[:limit]
+    return await _shape(db, ranked, viewer=viewer)
 
 
 async def by_author(

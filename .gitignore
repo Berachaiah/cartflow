@@ -69,3 +69,13 @@ inspect_report.txt
 
 # Local proof screenshots captured while checking a change in a browser.
 docs/screenshots/
+
+# Training environment, MLflow tracking store and trained artifacts. The
+# coefficients are generated per database by ml/train_ranker.py and are NOT
+# source: committing them would ship a model fitted to demo likes to
+# production. Without the file the feed serves chronological order, which is
+# the correct default until a model has been trained on real traffic.
+.venv-ml/
+mlruns/
+mlflow.db
+ml/artifacts/

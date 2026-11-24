@@ -1,0 +1,22 @@
+# --- Training only — NOT installed into the web app's environment ----------
+#
+# MLflow and scikit-learn are needed by `python -m ml.train_ranker` and by
+# nothing else. The serving path (`app/services/ranking.py`) multiplies nine
+# coefficients from a JSON artifact and imports none of this, which is why a
+# Vercel function can rank the feed without a gigabyte of dependencies and a
+# cold start that pays for them.
+#
+#   python -m venv .venv-ml
+#   .venv-ml\Scripts\python -m pip install -r requirements-ml.txt
+#   .venv-ml\Scripts\python -m ml.train_ranker --register
+#
+# Pinned for the same reason requirements.txt is: an unpinned ML stack drifts
+# under a model that was already validated. Moving a pin means retraining and
+# comparing the run in MLflow, not just installing and hoping.
+mlflow==3.18.0
+scikit-learn==1.9.1
+numpy==2.5.5
+
+# The trainer imports app.models and app.services.ranking so it can reuse the
+# serving feature maths, so it needs the app's own dependencies as well.
+-r requirements.txt
