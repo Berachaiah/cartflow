@@ -66,3 +66,6 @@ node_modules/
 *.db
 cookies*.txt
 inspect_report.txt
+
+# Local proof screenshots captured while checking a change in a browser.
+docs/screenshots/

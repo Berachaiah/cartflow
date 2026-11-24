@@ -101,7 +101,29 @@ curl -i https://<deployment>/sw.js                  # text/javascript, Service-W
 ```
 
 Then open `/marketplace` (static CSS/JS and product photos load), sign in, and
-check that `/orders` renders. A 500 on every page usually means `DATABASE_URL` or
+check that `/orders` renders.
+
+### "Connection refused" on every page
+
+If a log traceback ends in `asyncpg … Connect call failed` / `Connection
+refused`, and the URL above it reads `postgresql+asyncpg://localhost:5432/cartflow_dev`,
+then `DATABASE_URL` is **not set** on the deployment — the app fell back to its
+local default rather than failing to boot. Add it under **Settings → Environment
+Variables** for Production *and* Preview, then redeploy: Vercel only injects a
+variable that existed when the deployment was created.
+
+The same log line is the fastest way to tell the two other cases apart:
+
+* a `db.<ref>.supabase.co` host — the direct connection is IPv6-only, and Vercel
+  functions have no IPv6 route, so use the Supavisor pooler host instead
+  (`aws-0-<region>.pooler.supabase.com:5432`, the one Supabase shows under
+  **Connect → Session pooler**);
+* a pooler host that still refuses — the database password or the pooler region
+  is wrong, or the project is paused in the Supabase dashboard.
+
+Also set `APP_ENV=production` there. Without it the app boots in development
+mode: the startup key check is skipped and session cookies are not marked
+`https_only`, which the log shows as `"environment": "development"`. A 500 on every page usually means `DATABASE_URL` or
 `APP_SECRET_KEY` is missing; `/health/ready` reporting `"degraded"` means the
 function is up but Postgres is not reachable (wrong password, missing `?sslmode`,
 or a Supabase IP restriction).

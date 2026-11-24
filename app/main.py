@@ -33,6 +33,18 @@ logger = get_logger("cartflow.startup")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("startup", extra={"route": "-", "method": "-", "status_code": 0})
+    # A serverless deploy with no DATABASE_URL configured does not fail at boot —
+    # settings fall back to the localhost default and every request then dies with
+    # "Connection refused" buried in an asyncpg traceback. Saying it once, plainly,
+    # at startup is the difference between a one-line fix and an afternoon.
+    if "@localhost" in settings.DATABASE_URL or "@127.0.0.1" in settings.DATABASE_URL:
+        logger.warning(
+            "DATABASE_URL points at localhost (%s). On a hosted deployment this "
+            "means the variable is not set in the platform's environment — every "
+            "request will fail with 'Connection refused'. Set DATABASE_URL (and "
+            "APP_ENV=production) in the host's settings.",
+            settings.DATABASE_URL.split("@", 1)[-1],
+        )
     yield
     await dispose_engine()
     logger.info("shutdown", extra={"route": "-", "method": "-", "status_code": 0})
@@ -84,6 +96,16 @@ async def service_worker():
         _STATIC_DIR / "sw.js",
         media_type="text/javascript",
         headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"},
+    )
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon_ico():
+    """Browsers request /favicon.ico unprompted, whatever the <link rel="icon">
+    says. Serving the PNG here stops that request being a 404 in every log and a
+    blank tab icon in a browser that only asked for the conventional path."""
+    return FileResponse(
+        _STATIC_DIR / "images" / "favicon.png", media_type="image/png"
     )
 
 
