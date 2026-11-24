@@ -19,6 +19,7 @@ from app.integrations import cloudinary_client
 from app.models.post import Post
 from app.models.user import User
 from app.repositories.post import PostRepository
+from app.services import avatar as avatar_service
 from app.services import media as media_service
 
 # The composer's ceiling. Long enough for a caption and a price list, short
@@ -64,6 +65,13 @@ def to_feed_dict(
         "id": str(post.public_id),
         "author": author.display_name or author.username,
         "handle": author.username,
+        # The author's profile photo, or None. The card cannot work this out for
+        # itself: `author` above is a display STRING, so there is no User object
+        # left in the template to hand to `avatar_src` — which is why the feed
+        # drew the default silhouette over every post, even for an account that
+        # had uploaded a photo. Resolved here, where the User is in hand, and one
+        # joined relationship means no extra query per card.
+        "avatar": avatar_service.avatar_url(author, size="sm"),
         "seller": bool(author.is_seller),
         "location": location,
         "time": timeutils.time_ago(post.created_at),

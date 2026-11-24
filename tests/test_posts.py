@@ -17,11 +17,15 @@ import uuid
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.config import get_settings
 from app.core.exceptions import ServiceUnavailableError
 from app.integrations import cloudinary_client
 from app.integrations.cloudinary_client import UploadedImage
+from app.models.media import Media, MediaKind, MediaProvider
 from app.models.post import Post, PostLike
+from app.models.user import AccountStatus, AccountType, User
 from app.services import posts as posts_service
 from tests.feed_data import FEED_AUTHORS
 
@@ -328,3 +332,64 @@ async def test_a_photo_post_is_503_when_the_host_is_not_configured(
         files={"file": ("a.png", PNG_1PX, "image/png")},
     )
     assert r.status_code == 503, r.text
+
+
+# --- 5. the author's photo on the card -----------------------------------
+
+
+async def test_a_post_card_renders_the_authors_profile_photo(
+    engine, client: AsyncClient, monkeypatch
+):
+    """The feed drew the default silhouette over every post, even for an account
+    that had uploaded a photo.
+
+    `to_feed_dict` replaces the User with a display STRING, so `home.html` had no
+    object left to hand to `avatar_src` and the macro fell back — visibly, in the
+    one row where a real person's face belongs. The URL is resolved in the
+    service now, where the User is still in hand.
+    """
+    # The cloud name is all `build_url` needs to produce a URL; the test does not
+    # need (or touch) real credentials.
+    monkeypatch.setattr(get_settings(), "CLOUDINARY_CLOUD_NAME", "testcloud")
+
+    SessionLocal = async_sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
+    )
+    async with SessionLocal() as session:
+        author = User(
+            account_type=AccountType.INDIVIDUAL,
+            account_status=AccountStatus.ACTIVE,
+            email="photo-author@sample.cartflow.test",
+            username="photoauthor",
+            username_normalized="photoauthor",
+            display_name="Photo Author",
+            full_name="Photo Author",
+        )
+        session.add(author)
+        await session.flush()
+
+        media = Media(
+            owner_user_id=author.id,
+            provider=MediaProvider.CLOUDINARY,
+            kind=MediaKind.IMAGE,
+            public_id="cartflow/avatars/feedcard123",
+            secure_url="https://res.cloudinary.com/testcloud/image/upload/x.jpg",
+        )
+        session.add(media)
+        await session.flush()
+
+        author.profile_image_media_id = media.id
+        session.add(
+            Post(
+                author_id=author.id,
+                body="Post by an account with a photo",
+                images=[{"src": "/static/images/brands/mbl-world-cup-tee.webp", "alt": "tee"}],
+            )
+        )
+        await session.commit()
+
+    body = (await client.get("/")).text
+    assert "Post by an account with a photo" in body, "the post did not reach the feed"
+    assert "cartflow/avatars/feedcard123" in body, (
+        "the post card fell back to the default avatar for an author who has a photo"
+    )
