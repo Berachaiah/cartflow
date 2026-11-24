@@ -449,6 +449,28 @@ async def decline_request(
     )
 
 
+@router.post("/{public_id}/delete")
+async def delete_conversation(
+    public_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Remove a thread from MY inbox. The other person keeps their copy.
+
+    Distinct from archive, which hides a thread that a new message brings back.
+    This drops my participant row for good; if I was the last member the
+    conversation and its messages go too. No frame is published to the other
+    side: from their point of view nothing happened, which is the point.
+    """
+    await messaging_service.delete_conversation(
+        db, viewer=current_user, public_id=public_id
+    )
+    await realtime.publish(
+        {current_user.id}, {"type": "conversation_deleted", "conversation": str(public_id)}
+    )
+    return {"deleted": True}
+
+
 @router.post("/{public_id}/archive", response_model=ConversationStateResponse)
 async def archive_conversation(
     public_id: uuid.UUID,

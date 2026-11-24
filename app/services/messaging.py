@@ -46,7 +46,7 @@ from datetime import datetime, timedelta
 from typing import Iterable
 
 from fastapi import UploadFile
-from sqlalchemy import delete
+from sqlalchemy import delete, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -817,6 +817,37 @@ async def mark_read(
         participant.last_read_at = now
         await db.flush()
     return conversation, participant.last_read_at
+
+
+async def delete_conversation(
+    db: AsyncSession, *, viewer: User, public_id: uuid.UUID
+) -> None:
+    """Remove this conversation from MY inbox, leaving theirs intact.
+
+    Deleting a chat is per-person, the same way archiving is: one participant
+    dropping a thread must not erase the other side's history, because the other
+    side may still owe a reply about a real order. The row that goes is the
+    PARTICIPANT, not the conversation — and when the last participant leaves,
+    the conversation and its messages go with it (ON DELETE CASCADE), because a
+    thread with no members is unreachable data that would otherwise sit in the
+    table forever.
+    """
+    conversation, participant = await require_participant(
+        db, viewer=viewer, public_id=public_id
+    )
+    await db.delete(participant)
+    await db.flush()
+
+    remaining = (
+        await db.execute(
+            select(func.count())
+            .select_from(ConversationParticipant)
+            .where(ConversationParticipant.conversation_id == conversation.id)
+        )
+    ).scalar() or 0
+    if remaining == 0:
+        await db.delete(conversation)
+    await db.commit()
 
 
 async def accept_request(

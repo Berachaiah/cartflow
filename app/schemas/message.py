@@ -108,7 +108,17 @@ class MessageOut(BaseModel):
         this on a Message loaded by a query that defers them, or the attribute
         access raises MissingGreenlet mid-request.
         """
-        reply = getattr(message, "reply_to", None)
+        # A message that was just flushed has NEITHER relationship loaded: the
+        # joined/selectin loaders only run on a SELECT, and a brand-new row has
+        # nothing to select. Accessing an unloaded attribute on an async session
+        # raises MissingGreenlet, which is a 500 at send time — the one place the
+        # client is least able to recover. Reading them defensively keeps the
+        # serialiser honest for every caller instead of demanding that each one
+        # remember to re-query.
+        try:
+            reply = message.reply_to
+        except Exception:  # noqa: BLE001 — unloaded relationship in async context
+            reply = None
         return cls(
             public_id=message.public_id,
             kind=message.kind,
@@ -132,8 +142,20 @@ class MessageOut(BaseModel):
             reply_body=(None if (reply is None or reply.deleted_at) else reply.body),
             reply_is_mine=(reply is not None and reply.sender_id == viewer_id),
             reply_deleted=bool(reply is not None and reply.deleted_at),
-            reactions=_group_reactions(getattr(message, "reactions", None), viewer_id),
+            reactions=_group_reactions(_loaded(message, "reactions"), viewer_id),
         )
+
+
+def _loaded(message, name: str):
+    """`getattr` that tolerates an unloaded async relationship.
+
+    See the note in `from_message`: a just-flushed Message has no reactions yet,
+    and asking for them is IO that the caller's context may not allow.
+    """
+    try:
+        return getattr(message, name)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _group_reactions(rows, viewer_id: uuid.UUID) -> list[dict]:

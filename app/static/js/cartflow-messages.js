@@ -135,6 +135,46 @@
       await loadThread(active, false); loadInbox();
     } catch (e) { toast(e.message); }
   }
+  /* ---------- per-row menu (archive / block / delete) ---------- */
+  async function rowAction(fn) {
+    try { await fn(); } catch (e) { toast(e.message); }
+  }
+  function rowMenu(c, anchor) {
+    closeMenu();
+    const box = h('div', 'cm-menu'); box.id = 'cm-menu';
+    const item = (icon, label, cls, fn) => {
+      const b = btn('cm-mi' + (cls ? ' ' + cls : ''));
+      b.append(ico(icon), h('span', '', label));
+      b.onclick = e => { e.stopPropagation(); closeMenu(); fn(); };
+      box.append(b);
+      return b;
+    };
+    // Order is least-destructive first, so a thumb aiming at "Archive" cannot
+    // land on "Delete" because the list moved.
+    item('archive', 'Archive chat', '', () => rowAction(async () => {
+      await api(`/api/messages/${c.public_id}/archive`, 'POST');
+      if (active === c.other.username) closeThread();
+      loadInbox(); toast('Archived — it comes back if they write');
+    }));
+    item('block', `Block @${c.other.username}`, 'red', () => rowAction(async () => {
+      if (!confirm(`Block @${c.other.username}? You won't see each other's messages.`)) return;
+      await api('/api/messages/blocks/' + enc(c.other.username), 'POST');
+      if (active === c.other.username) closeThread();
+      loadInbox(); toast('Blocked');
+    }));
+    item('delete', 'Delete chat', 'red', () => rowAction(async () => {
+      if (!confirm('Delete this chat from your inbox? The other person keeps their copy.')) return;
+      await api(`/api/messages/${c.public_id}/delete`, 'POST');
+      if (active === c.other.username) closeThread();
+      loadInbox(); toast('Chat deleted');
+    }));
+
+    document.body.append(box);
+    const r = anchor.getBoundingClientRect(), bw = box.offsetWidth, bh = box.offsetHeight;
+    let left = r.right - bw; left = Math.max(8, Math.min(left, innerWidth - bw - 8));
+    let top = r.bottom + 6; if (top + bh > innerHeight - 8) top = Math.max(8, r.top - bh - 6);
+    box.style.left = left + 'px'; box.style.top = top + 'px';
+  }
   function jumpTo(id) {
     const el = msgsEl.querySelector(`[data-id="${id}"]`); if (!el) { toast('That message is further back in the chat'); return; }
     if (matchMedia('(max-width:1023px)').matches) { infoOpen = false; info.hidden = true; }
@@ -156,12 +196,22 @@
     const items = (inbox.items || []).filter(c => (tab === 'all' || (tab === 'unread' && c.unread > 0) || (tab === 'requests' && c.is_request)) && (!s || (nameOf(c.other) + ' ' + c.other.username + ' ' + (c.preview || '')).toLowerCase().includes(s)));
     if (!items.length) { rowsEl.replaceChildren(h('div', 'cm-empty', s ? 'No matches' : tab === 'all' ? 'No conversations yet. Tap the pencil to start one.' : 'Nothing here')); return; }
     rowsEl.replaceChildren(...items.map(c => {
+      // A wrapper, not a row with a button inside it: a <button> nested in a
+      // <button> is invalid HTML and browsers flatten it, so the ⋮ would stop
+      // working the moment it mattered. The row stays a button; the menu button
+      // is its sibling and stops propagation.
+      const wrap = h('div', 'cm-rwrap');
       const r = btn('cm-row' + (c.unread ? ' un' : '') + (c.other.username === active ? ' on' : ''));
       const m = h('div', 'cm-rm'), l1 = h('div', 'cm-l'), l2 = h('div', 'cm-l');
       l1.append(h('span', 'cm-nm', nameOf(c.other)), h('span', 'cm-tm', c.time_label || ''));
       l2.append(h('span', 'cm-pv', c.preview ? (c.preview_is_mine ? 'You: ' : '') + c.preview : (c.is_request ? 'Message request' : '')));
       if (c.unread > 0) l2.append(h('span', 'cm-n', c.unread)); else if (c.is_request) l2.append(h('span', 'cm-chip', 'Request'));
-      m.append(l1, l2); r.append(avatar(c.other, 52), m); r.onclick = () => openThread(c.other.username); return r;
+      m.append(l1, l2); r.append(avatar(c.other, 52), m); r.onclick = () => openThread(c.other.username);
+      const more = btn('cm-more', 'Chat options for ' + nameOf(c.other));
+      more.append(ico('more_horiz'));
+      more.onclick = e => { e.stopPropagation(); rowMenu(c, more); };
+      wrap.append(r, more);
+      return wrap;
     }));
   }
   $('cm-q').oninput = e => { q = e.target.value; renderRows(); };

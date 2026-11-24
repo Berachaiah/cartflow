@@ -261,3 +261,31 @@
 .cm-rxp{display:flex;gap:4px;padding:4px 6px 8px;border-bottom:1px solid var(--line);margin-bottom:4px}
 .cm-rxp button{width:34px;height:34px;border-radius:10px;font-size:18px;line-height:1;cursor:pointer;background:none;color:inherit}
 .cm-rxp button:hover{background:var(--soft)}
+
+/* ------------------------------------------------------------------
+   Per-row ⋮ button.
+
+   It lives OUTSIDE the row button (nested buttons are invalid HTML) and is laid
+   over its right edge, so the row's tap target is unchanged. Hidden until hover
+   or keyboard focus on desktop — the list is about conversations, not controls —
+   but always visible on touch, where there is no hover to reveal it.
+
+   `opacity` rather than display:none, so the control keeps its box and the
+   timestamp never jumps sideways as the pointer moves down the list.
+------------------------------------------------------------------ */
+.cm-rwrap{position:relative;display:block}
+.cm-row{width:100%}
+.cm-more{
+  position:absolute;right:6px;top:50%;transform:translateY(-50%);
+  width:34px;height:34px;border-radius:10px;display:grid;place-items:center;
+  color:var(--muted,#8DA0B8);background:var(--surface,rgba(20,33,61,.55));
+  border:1px solid var(--line,rgba(255,255,255,.08));
+  opacity:0;transition:opacity .15s ease, background .15s ease;
+}
+.cm-rwrap:hover .cm-more,.cm-more:focus-visible,.cm-rwrap:focus-within .cm-more{opacity:1}
+.cm-more:hover{background:var(--soft,rgba(255,255,255,.08));color:var(--ink,inherit)}
+.cm-more .material-symbols-outlined{font-size:20px}
+@media (hover:none){.cm-more{opacity:1}}
+/* Destructive items in a row/message menu: one colour step, not a red block. */
+.cm-mi.red{color:#E5484D}
+.cm-mi.red .material-symbols-outlined{color:#E5484D}
