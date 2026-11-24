@@ -157,6 +157,13 @@ class User(Base, UUIDPrimaryKeyMixin, PublicIdMixin, TimestampMixin, SoftDeleteM
     # seller; everyone can post stories) is a cheap boolean read, not a join.
     is_seller: Mapped[bool] = mapped_column(default=False, nullable=False)
 
+    # Staff flag, not an account type. The admin console is a capability on top
+    # of an ordinary account (docs 12 §7 keeps `account_type` to student /
+    # business / organisation), so promoting someone does not change how they
+    # appear to anyone else — it only unlocks /admin. Never derived from the
+    # username: a flag in the row is auditable, a magic name is a backdoor.
+    is_admin: Mapped[bool] = mapped_column(default=False, nullable=False, server_default="0")
+
     # Set when a student self-marks as graduated. Purely informational — it
     # does NOT gate login or drive any "alumni/graduate" badge (there is none).
     # Its one behavioural effect: a graduated seller is prompted to update the

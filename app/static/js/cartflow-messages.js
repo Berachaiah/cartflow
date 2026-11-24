@@ -13,6 +13,10 @@
   let deal = {product: null};
   let wp = {kind: 'preset', preset: 'default', image_url: null, focus_x: .5, focus_y: .5, dim: 0, scope: 'none'};
   let search = {on: false, q: '', hits: 0, i: 0};
+  // The message this draft is quoting, or null. Held here rather than in the DOM
+  // so a re-render of the thread cannot lose it.
+  let replyTo = null;
+  const REACTION_EMOJI = ['❤️', '😂', '😮', '😢', '👍', '🔥'];
 
   /* ---------- helpers ---------- */
   const h = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
@@ -80,13 +84,56 @@
     closeMenu(); if (!thread || !thread.conversation) return;
     const box = h('div', 'cm-menu'); box.id = 'cm-menu', was = pins.ids.has(m.public_id);
     const item = (i, label, fn) => { const b = btn('cm-mi'); b.append(ico(i), h('span', '', label)); b.onclick = e => { e.stopPropagation(); closeMenu(); fn(); }; box.append(b); };
+    // Reaction picker first: it is the most-used action on a long-press menu and
+    // putting it above the list means a thumb does not have to travel.
+    const rxp = h('div', 'cm-rxp');
+    REACTION_EMOJI.forEach(e => { const b = btn('', 'React ' + e); b.textContent = e; b.onclick = ev => { ev.stopPropagation(); closeMenu(); reactTo(m, e); }; rxp.append(b); });
+    box.append(rxp);
+    item('reply', 'Reply', () => setReply(m));
     item('push_pin', was ? 'Unpin message' : `Pin message · ${pins.list.length} of ${pins.max}`, () => togglePin(m));
+    if (m.is_mine) item('delete', 'Delete for everyone', () => deleteMsg(m));
     if (m.body) item('content_copy', 'Copy text', () => { (navigator.clipboard ? navigator.clipboard.writeText(m.body) : Promise.reject()).then(() => toast('Copied'), () => toast("Couldn't copy")); });
     document.body.append(box);
     const r = el.getBoundingClientRect(), bw = box.offsetWidth, bh = box.offsetHeight;
     let left = m.is_mine ? r.right - bw : r.left; left = Math.max(8, Math.min(left, innerWidth - bw - 8));
     let top = r.bottom + 6; if (top + bh > innerHeight - 8) top = Math.max(8, r.top - bh - 6);
     box.style.left = left + 'px'; box.style.top = top + 'px';
+  }
+  /* ---------- reply, react, delete ---------- */
+  function quoteEl(m) {
+    const q = h('div', 'cm-quote' + (m.reply_deleted ? ' gone' : '')), t = h('div', 'qt');
+    q.append(h('span', 'qb'));
+    t.append(h('span', 'qn', m.reply_is_mine ? 'You' : nameOf(thread.other)));
+    t.append(h('span', 'qs', m.reply_deleted ? 'This message was deleted' : (m.reply_body || 'Message')));
+    q.append(t);
+    // A quote is a doorway, not decoration: tapping it jumps to the original.
+    q.onclick = e => { e.stopPropagation(); if (m.reply_public_id) jumpTo(m.reply_public_id); };
+    return q;
+  }
+  function setReply(m) {
+    replyTo = m || null;
+    const bar = $('cm-reply'); if (!bar) return;
+    bar.hidden = !replyTo;
+    if (replyTo) {
+      $('cm-reply-who').textContent = replyTo.is_mine ? 'You' : nameOf(thread.other);
+      $('cm-reply-snip').textContent = replyTo.body || 'Photo';
+      input.focus();
+    }
+  }
+  async function reactTo(m, emoji) {
+    const c = thread && thread.conversation; if (!c) return;
+    try {
+      await api(`/api/messages/${c.public_id}/messages/${m.public_id}/reactions`, 'POST', {emoji});
+      await loadThread(active, false);
+    } catch (e) { toast(e.message); }
+  }
+  async function deleteMsg(m) {
+    const c = thread && thread.conversation; if (!c) return;
+    if (!confirm('Delete this message for everyone?')) return;
+    try {
+      await api(`/api/messages/${c.public_id}/messages/${m.public_id}`, 'DELETE');
+      await loadThread(active, false); loadInbox();
+    } catch (e) { toast(e.message); }
   }
   function jumpTo(id) {
     const el = msgsEl.querySelector(`[data-id="${id}"]`); if (!el) { toast('That message is further back in the chat'); return; }
@@ -122,7 +169,7 @@
   /* ---------- thread ---------- */
   async function openThread(handle) {
     active = handle; thread = null; deal = {product: null}; renderBar(); pins = {list: [], ids: new Set(), max: 5}; wp = {kind: 'preset', preset: 'default', image_url: null, focus_x: .5, focus_y: .5, dim: 0, scope: 'none'};
-    search = {on: false, q: '', hits: 0, i: 0}; $('cm-sbar').hidden = true; clearPending(); closeMenu(); infoTab = 'media';
+    search = {on: false, q: '', hits: 0, i: 0}; $('cm-sbar').hidden = true; clearPending(); setReply(null); closeMenu(); infoTab = 'media';
     root.classList.add('open'); $('cm-blank').hidden = true; $('cm-view').hidden = false; note.textContent = '';
     msgsEl.replaceChildren(h('div', 'cm-empty', 'Loading…')); applyWp();
     history.replaceState(null, '', '/messages/@' + handle); renderRows();
@@ -160,11 +207,26 @@
       const ph = photoOf(m), pinned = pins.ids.has(m.public_id), row = h('div', 'cm-m ' + (m.is_mine ? 'me' : 'th')), b = h('div', 'cm-b' + (tail ? ' tail' : '') + (ph ? ' img' : '') + (pinned ? ' pinned' : '') + (m.kind === 'offer' ? ' offer' : ''));
       row.dataset.id = m.public_id;
       if (pinned) { const pb = h('span', 'cm-pinb'); pb.append(ico('push_pin')); b.append(pb); }
+      if (m.reply_public_id) b.append(quoteEl(m));
       if (ph) { const im = h('img', 'cm-img'); im.src = ph; im.alt = 'Photo'; im.loading = 'lazy'; im.onclick = () => lightbox(ph); b.append(im); }
       if (m.kind === 'shared_product' && m.shared_product_slug) { const a = h('a', 'cm-share'); a.href = '/product/' + enc(m.shared_product_slug); a.append(ico('sell'), h('span', '', 'Shared a product')); b.append(a); }
       if (m.kind === 'shared_profile') { const hd = m.shared_user && m.shared_user.username; if (hd) { const a = h('a', 'cm-share'); a.href = '/@' + hd; a.append(ico('person'), h('span', '', 'Shared @' + hd)); b.append(a); } }
       if (m.kind === 'offer') b.append(offerCard(m)); else if (m.body) { const s = h('span', 'cm-t'); s.append(...hl(m.body)); b.append(s); }
-      const ti = h('span', 'cm-time', tfmt(d)); ti.title = m.exact_time || ''; b.append(ti); bindMsg(b, m); row.append(b); nodes.push(row);
+      const ti = h('span', 'cm-time', tfmt(d)); ti.title = m.exact_time || ''; b.append(ti);
+      if (m.reactions && m.reactions.length) {
+        // Chips live inside the bubble's column so they line up under the tail
+        // instead of floating in the middle of the thread.
+        const rx = h('div', 'cm-rx');
+        m.reactions.forEach(r => {
+          const c = btn('cm-rxc' + (r.mine ? ' mine' : ''), `React ${r.emoji}`);
+          c.append(document.createTextNode(r.emoji));
+          if (r.count > 1) c.append(h('span', 'n', String(r.count)));
+          c.onclick = e => { e.stopPropagation(); reactTo(m, r.emoji); };
+          rx.append(c);
+        });
+        b.append(rx);
+      }
+      bindMsg(b, m); row.append(b); nodes.push(row);
     });
     if (!msgs.length) nodes.push(h('div', 'cm-empty', 'Say hello to ' + nameOf(u)));
     const last = msgs[msgs.length - 1];
@@ -204,6 +266,7 @@
   $('cm-cam').onclick = () => $('cm-filecam').click(); $('cm-clip').onclick = () => $('cm-file').click();
   $('cm-file').onchange = e => { pick(e.target.files[0]); e.target.value = ''; }; $('cm-filecam').onchange = e => { pick(e.target.files[0]); e.target.value = ''; };
   $('cm-trayx').onclick = clearPending;
+  $('cm-reply-x').onclick = () => setReply(null);
   const emo = $('cm-emoji'); EMOJI.forEach(x => { const b = btn('', ''); b.textContent = x; b.onclick = () => { const a = input.selectionStart ?? input.value.length, z = input.selectionEnd ?? a; input.setRangeText(x, a, z, 'end'); input.dispatchEvent(new Event('input')); input.focus(); }; emo.append(b); });
   $('cm-emo').onclick = e => { e.stopPropagation(); emo.hidden = !emo.hidden; };
   document.addEventListener('click', e => { if (!emo.contains(e.target)) emo.hidden = true; closeMenu(); });
@@ -212,8 +275,8 @@
     $('cm-act').disabled = true; note.textContent = '';
     try {
       if (pending) { const fd = new FormData(); fd.append('file', pending.file); if (body) fd.append('body', body); await api(`/api/messages/threads/${enc(active)}/photo`, 'POST', fd); }
-      else await api('/api/messages/threads/' + enc(active), 'POST', {kind: 'text', body});
-      input.value = ''; input.style.height = ''; clearPending(); await loadThread(active, true); loadInbox();
+      else await api('/api/messages/threads/' + enc(active), 'POST', {kind: 'text', body, reply_to: replyTo ? replyTo.public_id : null});
+      input.value = ''; input.style.height = ''; clearPending(); setReply(null); await loadThread(active, true); loadInbox();
     } catch (e) { note.textContent = e.message; }
     $('cm-act').disabled = false; syncAct(); input.focus();
   };

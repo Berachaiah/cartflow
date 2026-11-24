@@ -49,6 +49,20 @@
         <div class="cm-banner" id="cm-banner" hidden><span><b>Message request.</b> Replying accepts it.</span><span style="display:flex;gap:8px"><button class="cm-bb p" id="cm-accept" type="button">Accept</button><button class="cm-bb" id="cm-decline" type="button">Delete</button></span></div>
         <div class="cm-wrap"><div class="cm-msgs" id="cm-msgs"></div><button class="cm-down" id="cm-downbtn" type="button" hidden aria-label="Latest"><span class="material-symbols-outlined" aria-hidden="true">keyboard_arrow_down</span></button></div>
         <div class="cm-note" id="cm-note"></div>
+        {# Quoted-reply bar. Sits above the composer, not inside it: the reply is
+           state of the draft, and a bubble that scrolls with the field would
+           hide the thing you are replying to as you type. Hidden until a reply
+           is chosen, and cleared by sending or by the ×. #}
+        <div class="cm-reply" id="cm-reply" hidden>
+          <span class="bar" aria-hidden="true"></span>
+          <div class="txt">
+            <span class="who" id="cm-reply-who"></span>
+            <span class="snip" id="cm-reply-snip"></span>
+          </div>
+          <button class="cm-ib sm" id="cm-reply-x" type="button" aria-label="Cancel reply">
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
+          </button>
+        </div>
         <div class="cm-tray" id="cm-tray" hidden><img id="cm-trayimg" alt=""><div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14px">1 photo</div><div class="cm-sub" id="cm-traysz"></div></div><button class="cm-ib sm" id="cm-trayx" type="button" aria-label="Remove photo"><span class="material-symbols-outlined" aria-hidden="true">close</span></button></div>
         <form class="cm-comp" id="cm-form">
           <button class="cm-ib p" id="cm-cam" type="button" aria-label="Camera"><span class="material-symbols-outlined" aria-hidden="true">photo_camera</span></button>
