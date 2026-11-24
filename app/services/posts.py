@@ -10,12 +10,25 @@ from __future__ import annotations
 
 import uuid
 
+from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import timeutils
+from app.core.exceptions import ValidationAppError
+from app.integrations import cloudinary_client
 from app.models.post import Post
 from app.models.user import User
 from app.repositories.post import PostRepository
+from app.services import media as media_service
+
+# The composer's ceiling. Long enough for a caption and a price list, short
+# enough that the card cannot be made unreadable by one account — the feed has
+# no "see more" truncation, so the limit is what keeps a post a post.
+MAX_BODY_CHARS = 2000
+
+# Sub-path under CLOUDINARY_FOLDER, alongside avatars/ and messages/, so a bad
+# upload can be traced to the feature that made it.
+_POST_SUBFOLDER = "posts"
 
 
 def _thousands(value: int) -> str:
@@ -118,6 +131,70 @@ async def liked_by_user(
     return await _shape(db, rows, viewer=viewer)
 
 
+async def create_post(
+    db: AsyncSession,
+    *,
+    author: User,
+    body: str,
+    file: UploadFile | None = None,
+) -> dict:
+    """Publish a post by `author`, optionally with one photo.
+
+    Order matters for the same reason it does in `avatar_service.set_avatar`: the
+    caption is validated, the image is uploaded, and only then is a row written.
+    A rejected file or a Cloudinary outage therefore leaves the feed exactly as
+    it was, instead of a post that says something the author never sent.
+
+    The photo is stored as a DELIVERY URL (sized, `c_limit`) rather than the
+    original `secure_url`, because the card renders every image at 4:5 and
+    serving a 12 MP camera file into it would spend the viewer's data on pixels
+    that are cropped away. The `media` row keeps the `public_id`, so a later
+    change to that size needs no re-upload.
+    """
+    text = (body or "").strip()
+    if not text and file is None:
+        raise ValidationAppError(
+            "Write something or add a photo before posting.",
+            fields={"body": "A post needs a caption or a photo."},
+        )
+    if len(text) > MAX_BODY_CHARS:
+        raise ValidationAppError(
+            f"That post is too long. Keep it under {MAX_BODY_CHARS} characters.",
+            fields={"body": f"Maximum is {MAX_BODY_CHARS} characters."},
+        )
+
+    images: list[dict] | None = None
+    if file is not None:
+        # 503, not 422, when the server has no Cloudinary credentials — that is
+        # our configuration problem, not something the author can fix by picking
+        # a different file. Text-only posts keep working in that state.
+        media_service.require_media_enabled()
+        data = await media_service.read_image_upload(file)
+        uploaded = await media_service.upload_to_subfolder(
+            data, subfolder=_POST_SUBFOLDER, filename=file.filename or "post"
+        )
+        media = media_service.media_row(uploaded, owner_id=author.id)
+        db.add(media)
+        await db.flush()
+
+        src = cloudinary_client.build_photo_url(
+            uploaded.public_id, width=media_service.PHOTO_WIDTH
+        )
+        images = [
+            {
+                "src": src,
+                "alt": f"Photo by {author.display_name or author.username}",
+            }
+        ]
+
+    post = Post(author_id=author.id, body=text, images=images)
+    db.add(post)
+    await db.commit()
+    await db.refresh(post)
+
+    return to_feed_dict(post, author, liked=False, following=False)
+
+
 async def toggle_like(
     db: AsyncSession, *, viewer: User, public_id: uuid.UUID
 ) -> tuple[bool, int]:
@@ -144,4 +221,11 @@ async def toggle_like(
     return liked, int(post.like_count or 0)
 
 
-__all__ = ["by_author", "feed", "liked_by_user", "to_feed_dict", "toggle_like"]
+__all__ = [
+    "by_author",
+    "create_post",
+    "feed",
+    "liked_by_user",
+    "to_feed_dict",
+    "toggle_like",
+]

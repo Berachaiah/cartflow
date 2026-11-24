@@ -145,6 +145,10 @@ async def home(
             page_title="Home",
             active_nav="home",
             feed_posts=await posts_service.feed(db, viewer=user),
+            # The composer shows its photo control only when the server can store
+            # a photo, so an install without Cloudinary renders a caption box
+            # instead of a button that answers 503.
+            media_enabled=settings.media_enabled,
             **(await catalog.catalog_context(db)),
         ),
     )

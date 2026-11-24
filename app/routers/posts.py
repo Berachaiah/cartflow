@@ -1,14 +1,13 @@
-"""Post interactions. One endpoint so far: the like toggle.
+"""Post interactions: publish a post, and like one.
 
-Deliberately small. Creating posts from the UI needs a composer that does not
-exist yet, and fake-writing one now would be a form nobody can style in time;
-what the feed actually cannot do without is a like that persists, because the
-card counts likes on every render and Activity can list them.
+The composer posts multipart because a post may carry a photo, and the file must
+not be base64'd through a JSON body. Text-only posts send the same form with no
+file, so the client has one code path rather than two.
 """
 
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, Form, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user
@@ -17,6 +16,28 @@ from app.models.user import User
 from app.services import posts as posts_service
 
 router = APIRouter(prefix="/api/posts", tags=["posts"])
+
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+async def create_post(
+    body: str = Form(default=""),
+    file: UploadFile | None = File(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Publish a post as the signed-in account.
+
+    Returns the post in the same shape the feed card renders (`to_feed_dict`), so
+    the client can insert it without a second round trip, and so the composer and
+    Home cannot disagree about what a post looks like.
+
+    A photo with no Cloudinary credentials answers 503 rather than 422: the file
+    is fine, the server is not configured, and the author should not go hunting
+    for a different picture.
+    """
+    return await posts_service.create_post(
+        db, author=current_user, body=body, file=file
+    )
 
 
 @router.post("/{public_id}/like")
