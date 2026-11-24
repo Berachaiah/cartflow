@@ -14,6 +14,44 @@
 <meta name="mobile-web-app-capable" content="yes">
 <title>CartFlow | {{ page_title or "Home" }}</title>
 
+{# ---- theme, resolved BEFORE anything paints ------------------------------
+   Three preferences: 'light', 'dark' and 'system'. The STORED value is the
+   preference; `data-theme` carries what it resolves to right now. The palette
+   is dark at :root and [data-theme="light"] overrides it, so "system while the
+   OS is dark" sets nothing and "system while the OS is light" sets light.
+
+   This runs BEFORE the stylesheet links, not after them, and that is the whole
+   point. Sitting lower in the head meant the browser had already painted the
+   default white canvas and the dark splash then appeared on top of it — the
+   white flash in dark mode. The <style> immediately below pins the canvas to the
+   resolved palette, so the very first frame is already the right colour.
+
+   An ABSENT key means 'system', not light. This app installs as a PWA, and an
+   installed app that ignores the phone's own appearance setting looks broken
+   beside every other app on it. Keeping "hasn't chosen" distinct from "chose
+   light" is also what lets the default keep working for people who never touch
+   the control — set by cfSetTheme(), never by merely rendering a page. #}
+<script>
+  try {
+      var cfStored = localStorage.getItem('cartflow-theme');
+      var cfPref = (cfStored === 'light' || cfStored === 'dark' || cfStored === 'system') ? cfStored : 'system';
+      var cfDark = cfPref === 'dark' ||
+          (cfPref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      if (!cfDark) document.documentElement.setAttribute('data-theme', 'light');
+      document.querySelector('#themeColorMeta').content = cfDark ? '#07111F' : '#F5F3EF';
+  } catch (e) {
+      /* private mode / storage disabled — fall through to the light default */
+      document.documentElement.setAttribute('data-theme', 'light');
+  }
+</script>
+<style>
+  /* First-paint canvas. Values are literal because this must be true before
+     any stylesheet (and before CSS variables) exist. Keep in step with
+     cartflow-ui.css --c-bg and [data-theme="light"] --c-bg. */
+  html { background: #07111F; }
+  html[data-theme="light"] { background: #F5F3EF; }
+</style>
+
 {# Compiled Tailwind, served by us. This was `cdn.tailwindcss.com`, a JIT that
    compiled the stylesheet in the browser on every page load — which made every
    pixel of this app depend on the viewer reaching a third party. A phone on a
@@ -59,31 +97,6 @@
   // Skip the splash/skeleton after the first load this session
   if (sessionStorage.getItem('cartflow-visited')) {
       document.documentElement.classList.add('skip-preloader');
-  }
-
-  /* ---- theme, resolved BEFORE first paint ----
-     Three preferences: 'light', 'dark' and 'system'. The STORED value is the
-     preference; `data-theme` carries what it resolves to right now. The palette
-     is dark at :root and [data-theme="light"] overrides it, so "system while the
-     OS is dark" sets nothing and "system while the OS is light" sets light.
-     Resolving it here — inline, blocking, before the body paints — is what stops
-     a light-mode phone flashing the dark palette for a frame on every load.
-
-     An ABSENT key means 'system', not light. This app installs as a PWA, and an
-     installed app that ignores the phone's own appearance setting looks broken
-     beside every other app on it. Keeping "hasn't chosen" distinct from "chose
-     light" is also what lets the default keep working for people who never touch
-     the control — set by cfSetTheme(), never by merely rendering a page. */
-  try {
-      var cfStored = localStorage.getItem('cartflow-theme');
-      var cfPref = (cfStored === 'light' || cfStored === 'dark' || cfStored === 'system') ? cfStored : 'system';
-      var cfDark = cfPref === 'dark' ||
-          (cfPref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-      if (!cfDark) document.documentElement.setAttribute('data-theme', 'light');
-      document.querySelector('#themeColorMeta')?.setAttribute('content', cfDark ? '#07111F' : '#F5F3EF');
-  } catch (e) {
-      /* private mode / storage disabled — fall through to the light default */
-      document.documentElement.setAttribute('data-theme', 'light');
   }
 </script>
 <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', path='images/favicon-192.png') }}">
@@ -392,6 +405,71 @@ img.emoji{ height:1em; width:1em; margin:0 .05em 0 .1em; vertical-align:-.1em; d
 .follow-btn{ transition:background-color .3s, color .3s, border-color .3s, transform .2s; }
 .follow-btn:active{ transform:scale(.94); }
 
+/* ===================== FIELDS THAT LOOK LIKE FIELDS =====================
+   A bare <input>/<textarea> with no class renders as the browser's default
+   bevel box: 2px inset, square corners, a hard 1px line. On a page made of
+   glass panels and 16px radii it is the one element that looks like it was not
+   designed at all — which is exactly what the composer's caption box looked
+   like.
+
+   These rules are the FALLBACK layer, so anything already using `.input` or a
+   Tailwind utility keeps its own look: an element selector loses to a class,
+   which is what makes this safe to add globally. Inputs get a soft inset
+   surface, a 12px radius and a hairline that is visible in both themes; the
+   focus state is a brand-tinted ring instead of the platform outline.
+
+   `:where()` keeps specificity at zero so an existing `rounded-full` or
+   `bg-transparent` still wins. */
+:where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="submit"]):not([type="color"]), textarea, select){
+  border-radius: 12px;
+  background-color: color-mix(in srgb, var(--c-card) 78%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-border) 88%, transparent);
+  padding: 10px 14px;
+  color: var(--c-text);
+  transition: box-shadow .18s ease, background-color .18s ease;
+}
+:where(input, textarea)::placeholder{ color: color-mix(in srgb, var(--c-muted) 80%, transparent); }
+:where(input, textarea, select):hover:not(:disabled):not(:focus){
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-text) 18%, var(--c-border));
+}
+:where(input, textarea, select):focus{
+  outline: none;
+  background-color: color-mix(in srgb, var(--c-card) 92%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 55%, transparent),
+              0 0 0 3px color-mix(in srgb, var(--brand) 16%, transparent);
+}
+[data-theme="light"] :where(input, textarea, select){
+  background-color: #FFFFFF;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #0F172A 12%, transparent);
+}
+
+/* ===================== FOCUS, ON PURPOSE =====================
+   Browsers draw a 2px #005FCC-ish ring on every focused control. It is the one
+   piece of chrome the app never chose, it appears on a mouse click (the textarea
+   in the composer is the worst offender) and against this palette it reads as a
+   leftover from a different product.
+
+   Two rules, not one. `:focus` is silenced for anything a pointer can focus —
+   which is most of what people see. `:focus-visible` keeps a ring for keyboard
+   and screen-reader users, because removing that is a real accessibility
+   failure, not a polish win. The ring is the app's own ink at 2px offset rather
+   than the platform blue, so it looks deliberate when it does appear.
+
+   Controls that draw their own focus treatment (`.input`, the theme switch, the
+   message composer) opt out of the generic ring with `.cf-no-ring`. */
+:where(a, button, input, textarea, select, summary, [tabindex]):focus{ outline: none; }
+:where(a, button, input, textarea, select, summary, [tabindex]):focus-visible{
+  outline: 2px solid var(--c-text);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+/* Inputs get a ring that follows their own radius instead of a hard rectangle
+   offset outside the field, which is what made the blue box look pasted on. */
+textarea:focus-visible, input:focus-visible, .input:focus-visible{
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-text) 45%, transparent);
+}
+
 /* skeleton shimmer */
 @keyframes shimmer{ 0%{background-position:-400px 0} 100%{background-position:400px 0} }
 .skeleton{
@@ -410,6 +488,66 @@ img.emoji{ height:1em; width:1em; margin:0 .05em 0 .1em; vertical-align:-.1em; d
 }
 .skip-preloader #skeletonLayer{ display:none !important; }
 .skip-preloader #appContent{ opacity:1 !important; }
+
+/* ===================== SPLASH =====================
+   One layout, two deliberate looks. Dark is the palette the app is designed
+   around: near-black field, the mark floating in a soft blue halo, a thin
+   gradient progress line. Light reuses the SAME structure with a warm cream
+   field and an ink-tinted mark — not the dark version with the brightness
+   turned up, which is what made it read as unfinished.
+
+   Background is a literal here because the splash can render before
+   cartflow-ui.css has been parsed; --c-bg is repeated as the fallback. */
+.cf-splash{
+  position:fixed; inset:0; z-index:75;
+  display:grid; place-items:center;
+  background:#07111F;
+  background:var(--c-bg,#07111F);
+  transition:opacity .35s ease;
+}
+.cf-splash-inner{ display:flex; flex-direction:column; align-items:center; gap:14px; }
+.cf-splash-mark{
+  position:relative; display:grid; place-items:center;
+  width:132px; height:132px; border-radius:38px;
+  background:radial-gradient(circle at 50% 38%, rgba(124,198,255,.22), rgba(124,198,255,0) 68%);
+}
+.cf-splash-mark::after{
+  content:""; position:absolute; inset:12px; border-radius:30px;
+  border:1px solid rgba(124,198,255,.18);
+}
+.cf-splash-mark img{ width:104px; height:104px; object-fit:contain; display:block; }
+.cf-splash-word{
+  font-family:var(--font-display,Georgia,serif); font-size:26px; font-weight:900;
+  letter-spacing:-.02em; margin:2px 0 0; color:#F5F3EF; color:var(--c-text,#F5F3EF);
+}
+.cf-splash-bar{
+  width:136px; height:3px; border-radius:999px; overflow:hidden;
+  background:rgba(255,255,255,.10); margin-top:6px;
+}
+.cf-splash-bar span{
+  display:block; width:38%; height:100%; border-radius:999px;
+  background:linear-gradient(90deg, rgba(124,198,255,0), #7CC6FF, rgba(124,198,255,0));
+  animation:cfSplashSweep 1.35s ease-in-out infinite;
+}
+@keyframes cfSplashSweep{
+  0%{ transform:translateX(-120%); }
+  100%{ transform:translateX(360%); }
+}
+
+/* light: warm field, ink mark ring, a gradient that is visible on cream */
+[data-theme="light"] .cf-splash{ background:#F5F3EF; background:var(--c-bg,#F5F3EF); }
+[data-theme="light"] .cf-splash-mark{
+  background:radial-gradient(circle at 50% 38%, rgba(18,104,182,.14), rgba(18,104,182,0) 70%);
+}
+[data-theme="light"] .cf-splash-mark::after{ border-color:rgba(15,23,42,.10); }
+[data-theme="light"] .cf-splash-word{ color:#0F172A; color:var(--c-text,#0F172A); }
+[data-theme="light"] .cf-splash-bar{ background:rgba(15,23,42,.10); }
+[data-theme="light"] .cf-splash-bar span{
+  background:linear-gradient(90deg, rgba(18,104,182,0), #1268B6, rgba(18,104,182,0));
+}
+@media (prefers-reduced-motion: reduce){
+  .cf-splash-bar span{ animation:none; width:100%; opacity:.7; }
+}
 
 /* ===================== APPEARANCE SWITCH =====================
    The three-way control (System / Light / Dark) used by Settings and by the
@@ -503,17 +641,7 @@ img.emoji{ height:1em; width:1em; margin:0 .05em 0 .1em; vertical-align:-.1em; d
 <!-- ========================= -->
 <!-- SKELETON LOADER -->
 <!-- ========================= -->
-<div id="skeletonLayer" class="fixed inset-0 z-[75] bg-background flex items-center justify-center">
-  <div class="flex flex-col items-center gap-5">
-    <div class="w-28 h-28 flex items-center justify-center animate-pulse">
-        <img src="{{ url_for('static', path='images/logo-icon.png') }}" alt="CartFlow" class="w-full h-full object-contain">
-    </div>
-    <h1 class="font-display text-2xl font-black tracking-tight">CartFlow</h1>
-    <div class="w-40 h-1 rounded-full bg-card overflow-hidden">
-      <div class="h-full w-1/3 bg-primary rounded-full animate-[shimmer_1.2s_ease-in-out_infinite]"></div>
-    </div>
-  </div>
-</div>
+{% include "partials/splash.html" %}
 
 <div id="appContent" class="{% if bare %}app-screen{% else %}min-h-screen flex{% endif %}">
 

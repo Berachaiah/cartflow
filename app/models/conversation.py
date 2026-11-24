@@ -309,8 +309,66 @@ class Message(Base, UUIDPrimaryKeyMixin, PublicIdMixin, TimestampMixin, SoftDele
         lazy="joined", foreign_keys=[shared_user_id]
     )
 
+    # --- quoted reply -------------------------------------------------
+    # A reply POINTS AT the message it quotes rather than copying its text. The
+    # copy would go stale the moment the original was edited or deleted-for-all,
+    # and a quote of a deleted message should say it was deleted — which it can
+    # only do if the link survives. ON DELETE SET NULL, so purging history leaves
+    # the reply standing without a dangling target.
+    reply_to_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # `remote_side` is required on a self-referential relationship: without it
+    # SQLAlchemy cannot tell which end is the parent and raises at mapper config.
+    # joined, for the same MissingGreenlet reason as `media` above.
+    reply_to: Mapped["Message | None"] = relationship(
+        lazy="joined",
+        remote_side="Message.id",
+        foreign_keys=[reply_to_id],
+    )
+
+    # selectin, not joined: a joined load here would multiply the thread query by
+    # every reaction on every message. selectin is one extra query for the page.
+    reactions: Mapped[list["MessageReaction"]] = relationship(
+        lazy="selectin",
+        cascade="all, delete-orphan",
+        order_by="MessageReaction.created_at",
+    )
+
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"<Message {self.public_id} ({self.kind})>"
+
+
+class MessageReaction(Base, TimestampMixin):
+    """One emoji, from one person, on one message (WhatsApp/iMessage shape).
+
+    The PK is the whole row: reacting twice with the same emoji is the same fact,
+    so a double-tap cannot inflate a count. Toggling is therefore a delete when
+    the row exists and an insert when it does not — the client never sends
+    "remove", it sends the emoji it wants and the server knows the current state.
+
+    No `updated_at` meaning beyond the mixin: a reaction is not editable, it is
+    added or removed.
+    """
+
+    __tablename__ = "message_reactions"
+    __table_args__ = (
+        # "what did I react to in this thread" — the only other query shape.
+        Index("ix_message_reactions_user", "user_id"),
+    )
+
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    # Short by design: one grapheme cluster, not a sentence. Stored as the
+    # literal character so the client needs no sprite sheet or lookup table.
+    emoji: Mapped[str] = mapped_column(String(16), primary_key=True)
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"<MessageReaction {self.emoji} on {self.message_id}>"
 
 
 class UserBlock(Base, TimestampMixin):

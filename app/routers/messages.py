@@ -71,6 +71,7 @@ from app.schemas.message import (
     ReadResponse,
     ReportRequest,
     ReportResponse,
+    ReactionRequest,
     SendMessageRequest,
     SendMessageResponse,
     ThreadResponse,
@@ -252,6 +253,7 @@ async def send_message(
         body=payload.body,
         shared_product_slug=payload.shared_product_slug,
         shared_username=payload.shared_username,
+        reply_to=payload.reply_to,
     )
     await _publish_message(result, sender=current_user, recipient=result.other)
     return SendMessageResponse.from_result(result, viewer_id=current_user.id)
@@ -532,6 +534,47 @@ class _PresetBody(_BaseModel):
     conversation: _uuid.UUID | None = None
     preset: str
     dim: int = 0
+
+
+@router.post("/{public_id}/messages/{message_id}/reactions")
+async def react_to_message(
+    public_id: _uuid.UUID,
+    message_id: _uuid.UUID,
+    payload: ReactionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Toggle one emoji on one message.
+
+    One endpoint for add and remove: the server is the only party that knows
+    whether this user already reacted, so a client's double-tap is a no-op
+    rather than a 409 it would have to handle for no product reason.
+    """
+    result, party = await extras_service.toggle_reaction(
+        db,
+        viewer=current_user,
+        public_id=public_id,
+        message_public_id=message_id,
+        emoji=payload.emoji,
+    )
+    await realtime.publish(party, {"type": "reactions", "conversation": str(public_id)})
+    return result
+
+
+@router.delete("/{public_id}/messages/{message_id}")
+async def delete_message(
+    public_id: _uuid.UUID,
+    message_id: _uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete for everyone. Sender only; the bubble becomes a tombstone so a
+    reply that quotes it still makes sense."""
+    result, party = await extras_service.delete_message(
+        db, viewer=current_user, public_id=public_id, message_public_id=message_id
+    )
+    await realtime.publish(party, {"type": "deleted", "conversation": str(public_id)})
+    return result
 
 
 @router.get("/{public_id}/pins")

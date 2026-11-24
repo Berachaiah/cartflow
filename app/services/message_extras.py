@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import NotFoundError, ServiceUnavailableError, ValidationAppError
 from app.core.timeutils import utc_now
 from app.integrations import cloudinary_client
-from app.models.conversation import ConversationParticipant, Message
+from app.models.conversation import ConversationParticipant, Message, MessageReaction
 from app.models.media import Media
 from app.models.message_extras import (
     MAX_PINS,
@@ -102,6 +102,100 @@ async def _find_message(db: AsyncSession, conversation_id: uuid.UUID, message_pu
     if msg is None:
         raise NotFoundError("That message isn't available.")
     return msg
+
+
+# The reaction bar offered in the UI. Also the server-side allowlist: an emoji
+# outside this set would render as an empty box on a device whose font lacks it,
+# and an unbounded string column is an invitation to store 16 bytes of nonsense.
+REACTION_EMOJI = ("❤️", "😂", "😮", "😢", "👍", "🔥")
+
+
+async def toggle_reaction(
+    db: AsyncSession,
+    *,
+    viewer: User,
+    public_id: uuid.UUID,
+    message_public_id: uuid.UUID,
+    emoji: str,
+) -> tuple[dict, set[uuid.UUID]]:
+    """Add my reaction if absent, remove it if present. Returns the new state.
+
+    Toggle-by-emoji rather than separate add/remove endpoints: the client sends
+    what the user tapped, and the server — the only party that knows whether the
+    row exists — decides. That makes a double-tap a no-op instead of a 409, and
+    means two devices reacting at once converge on the same answer.
+    """
+    conversation, _ = await messaging_service.require_participant(
+        db, viewer=viewer, public_id=public_id
+    )
+    msg = await _find_message(db, conversation.id, message_public_id)
+
+    emoji = (emoji or "").strip()
+    if emoji not in REACTION_EMOJI:
+        raise ValidationAppError("That reaction isn't available.")
+
+    existing = await db.get(MessageReaction, (msg.id, viewer.id, emoji))
+    if existing is None:
+        db.add(MessageReaction(message_id=msg.id, user_id=viewer.id, emoji=emoji))
+        added = True
+    else:
+        await db.delete(existing)
+        added = False
+    await db.commit()
+
+    # Re-read through the same path the thread uses, so the caller gets the same
+    # grouped shape the renderer expects rather than a bespoke one.
+    fresh = await db.get(Message, msg.id)
+    await db.refresh(fresh, attribute_names=["reactions"])
+    parties = await _party_ids(db, conversation.id)
+    return (
+        {
+            "message_id": str(msg.public_id),
+            "emoji": emoji,
+            "added": added,
+            "reactions": MessageOut.from_message(fresh, viewer_id=viewer.id).reactions,
+        },
+        parties,
+    )
+
+
+async def delete_message(
+    db: AsyncSession,
+    *,
+    viewer: User,
+    public_id: uuid.UUID,
+    message_public_id: uuid.UUID,
+) -> tuple[dict, set[uuid.UUID]]:
+    """Delete for everyone. Sender only, tombstones the bubble.
+
+    WhatsApp's model, not Telegram's: the row survives so the other person is not
+    left with a gap and a reply that quotes nothing. `deleted_at` hides it from
+    `list_messages`, and the body is cleared so the old text is not merely hidden
+    by a filter somewhere else.
+    """
+    conversation, _ = await messaging_service.require_participant(
+        db, viewer=viewer, public_id=public_id
+    )
+    msg = await _find_message(db, conversation.id, message_public_id)
+    if msg.sender_id != viewer.id:
+        raise ValidationAppError("You can only delete your own messages.")
+
+    msg.deleted_at = utc_now()
+    msg.body = None
+    msg.media_id = None
+    msg.shared_product_slug = None
+    msg.shared_user_id = None
+    # The inbox preview is denormalised on `conversations`; leaving the old text
+    # there would keep showing a deleted sentence in the conversation list.
+    if conversation.last_message_at and _aware(msg.created_at) >= _aware(
+        conversation.last_message_at
+    ):
+        conversation.last_message_preview = "This message was deleted"
+    await db.commit()
+    return (
+        {"message_id": str(msg.public_id), "deleted": True},
+        await _party_ids(db, conversation.id),
+    )
 
 
 async def pin_message(db: AsyncSession, *, viewer: User, public_id: uuid.UUID, message_public_id: uuid.UUID):

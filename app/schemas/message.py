@@ -78,6 +78,21 @@ class MessageOut(BaseModel):
     # than linking to a 404.
     shared_user: PublicUserOut | None = None
 
+    # --- quoted reply (resolved for THIS viewer) -----------------------
+    # `reply_is_mine` is computed server-side for the same reason `is_mine` is:
+    # the client would have to know its own id to align the quote, and getting
+    # that wrong shows the quote attributed to the wrong side.
+    reply_public_id: uuid.UUID | None = None
+    reply_body: str | None = None
+    reply_is_mine: bool = False
+    # True when the quoted message was deleted after this reply was sent. The
+    # quote then renders "This message was deleted" instead of vanishing — a
+    # reply that silently loses its context reads like a bug.
+    reply_deleted: bool = False
+    # [{"emoji": "❤️", "count": 2, "mine": true}] — grouped, because two people
+    # reacting with the same emoji is one chip with a count, not two chips.
+    reactions: list[dict] = []
+
     @classmethod
     def from_message(cls, message, *, viewer_id: uuid.UUID) -> "MessageOut":
         """Build from a `Message` ORM row, from the viewer's point of view.
@@ -88,10 +103,12 @@ class MessageOut(BaseModel):
         different depending on whether it arrived live or on reload would be a
         very confusing bug to chase.
 
-        Reads `message.media` and `message.shared_user`, both `lazy="joined"` on
-        the model — do not call this on a Message loaded by a query that defers
-        them, or the attribute access raises MissingGreenlet mid-request.
+        Reads `message.media`, `message.shared_user` and `message.reply_to`
+        (lazy="joined") plus `message.reactions` (lazy="selectin") — do not call
+        this on a Message loaded by a query that defers them, or the attribute
+        access raises MissingGreenlet mid-request.
         """
+        reply = getattr(message, "reply_to", None)
         return cls(
             public_id=message.public_id,
             kind=message.kind,
@@ -111,7 +128,27 @@ class MessageOut(BaseModel):
                 if getattr(message, "shared_user", None) is not None
                 else None
             ),
+            reply_public_id=(reply.public_id if reply is not None else None),
+            reply_body=(None if (reply is None or reply.deleted_at) else reply.body),
+            reply_is_mine=(reply is not None and reply.sender_id == viewer_id),
+            reply_deleted=bool(reply is not None and reply.deleted_at),
+            reactions=_group_reactions(getattr(message, "reactions", None), viewer_id),
         )
+
+
+def _group_reactions(rows, viewer_id: uuid.UUID) -> list[dict]:
+    """Collapse (emoji, user) rows into one chip per emoji.
+
+    Ordering is by first reaction so the row does not reshuffle under the
+    cursor when someone reacts while you are reading.
+    """
+    grouped: dict[str, dict] = {}
+    for row in rows or []:
+        entry = grouped.setdefault(row.emoji, {"emoji": row.emoji, "count": 0, "mine": False})
+        entry["count"] += 1
+        if row.user_id == viewer_id:
+            entry["mine"] = True
+    return list(grouped.values())
 
 
 class ConversationRowOut(BaseModel):
@@ -410,6 +447,18 @@ class SendMessageRequest(BaseModel):
     body: str | None = None
     shared_product_slug: str | None = None
     shared_username: str | None = None
+    # The quoted message, by its public id. The service resolves it against this
+    # conversation, so a crafted id from another thread is rejected rather than
+    # quoted.
+    reply_to: uuid.UUID | None = None
+
+
+class ReactionRequest(BaseModel):
+    """One emoji toggle. Validated against an allowlist in the service, not here:
+    the set belongs beside the reaction bar it mirrors, not in the transport
+    schema."""
+
+    emoji: str
 
 
 class DisappearingRequest(BaseModel):

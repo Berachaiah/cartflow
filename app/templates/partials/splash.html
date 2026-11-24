@@ -1,0 +1,22 @@
+{# The launch splash, shared by every page because every page extends base.
+
+   WHY IT IS A PARTIAL WITH ITS OWN CSS. The previous version was a Tailwind
+   soup (`bg-background`, `animate-pulse`, `bg-primary`) inside base.html: the
+   light theme silently fell back to a flat cream rectangle because
+   `--c-card` and `--c-bg` are nearly the same value there, so the card the mark
+   sat on disappeared and the whole screen looked washed out next to the dark
+   one. Here each theme gets a deliberate treatment instead of two themes
+   sharing one set of tokens.
+
+   The mark is the app's own logo, not a decorative substitute: on first load
+   this screen is the only thing a user sees, and a generic spinner would be the
+   first impression of a product that has a real mark. #}
+<div id="skeletonLayer" class="cf-splash" role="status" aria-live="polite" aria-label="Loading CartFlow">
+  <div class="cf-splash-inner">
+    <div class="cf-splash-mark">
+      <img src="{{ url_for('static', path='images/logo-icon.png') }}" alt="" width="104" height="104">
+    </div>
+    <h1 class="cf-splash-word">CartFlow</h1>
+    <div class="cf-splash-bar" aria-hidden="true"><span></span></div>
+  </div>
+</div>

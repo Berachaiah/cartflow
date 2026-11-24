@@ -564,6 +564,7 @@ async def _record_delivery(
     media_id: uuid.UUID | None = None,
     shared_product_slug: str | None = None,
     shared_user_id: uuid.UUID | None = None,
+    reply_to_id: uuid.UUID | None = None,
 ) -> tuple[Message, bool]:
     """Insert the message and update everything that mirrors it.
 
@@ -597,6 +598,7 @@ async def _record_delivery(
         media_id=media_id,
         shared_product_slug=shared_product_slug,
         shared_user_id=shared_user_id,
+        reply_to_id=reply_to_id,
         expires_at=expires_at,
     )
     db.add(message)
@@ -644,6 +646,7 @@ async def send_message(
     media_id: uuid.UUID | None = None,
     shared_product_slug: str | None = None,
     shared_username: str | None = None,
+    reply_to: uuid.UUID | None = None,
 ) -> SendResult:
     """Send a message to `username`, enforcing §6.
 
@@ -707,6 +710,26 @@ async def send_message(
                 raise ConflictError(reason)
             raise ForbiddenError(reason)
 
+    # A reply is resolved against THIS conversation, not the messages table at
+    # large: quoting a message from a different thread would leak its text to
+    # someone who was never in that conversation.
+    reply_to_id: uuid.UUID | None = None
+    if reply_to is not None:
+        target = (
+            await db.execute(
+                select(Message).where(
+                    Message.public_id == reply_to,
+                    Message.conversation_id == conversation.id,
+                    Message.deleted_at.is_(None),
+                )
+            )
+        ).scalars().first()
+        if target is None:
+            raise ValidationAppError(
+                "That message is no longer available to reply to."
+            )
+        reply_to_id = target.id
+
     message, accepted_now = await _record_delivery(
         db,
         conversation=conversation,
@@ -716,6 +739,7 @@ async def send_message(
         media_id=media_id,
         shared_product_slug=shared_product_slug,
         shared_user_id=shared_user_id,
+        reply_to_id=reply_to_id,
     )
 
     # A thread that just saw activity is the cheapest, most natural place to
