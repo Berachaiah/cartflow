@@ -40,7 +40,7 @@ from app.core.exceptions import NotFoundError, ValidationAppError
 from app.models.payment import Payment, PaymentStatus
 from app.models.product import Product
 from app.models.user import User
-from app.services import flutterwave, squad
+from app.services import flutterwave, notifications, squad
 from app.services.catalog import list_products
 
 logger = logging.getLogger("cartflow.payments")
@@ -232,6 +232,11 @@ async def settle(db: AsyncSession, *, payment: Payment) -> Payment:
     if payment.status == PaymentStatus.SUCCESSFUL.value:
         return payment
 
+    # Captured before anything is written: notifications fire on a TRANSITION,
+    # not on every settle() call. A webhook that arrives twice, or a callback
+    # plus a webhook for the same failed row, must not mail the buyer twice.
+    was_pending = payment.status == PaymentStatus.PENDING.value
+
     result = await verify_with_provider(payment)
     status = result.get("status") or ""
 
@@ -246,6 +251,14 @@ async def settle(db: AsyncSession, *, payment: Payment) -> Payment:
             )
             await db.commit()
             await db.refresh(payment)
+            if was_pending:
+                # The row is committed first: the buyer's inbox must not depend
+                # on SMTP being reachable, and a mail failure must not undo the
+                # recorded (failed) payment.
+                try:
+                    await notifications.notify_payment_failed(db, payment=payment)
+                except Exception:  # noqa: BLE001
+                    logger.exception("failed to announce declined payment %s", payment.reference)
         return payment
 
     try:
@@ -275,6 +288,17 @@ async def settle(db: AsyncSession, *, payment: Payment) -> Payment:
     await _take_stock(db, payment)
     await db.commit()
     await db.refresh(payment)
+
+    # Buyer receipt + one alert per seller. Announced AFTER the commit because
+    # this is the point of no return: the money moved, so the notifications are
+    # a consequence of a fact rather than part of the transaction. A failure here
+    # is logged, never raised — turning a paid order into a 500 because a mailbox
+    # was full would be the worst possible trade.
+    try:
+        await notifications.notify_order_paid(db, payment=payment)
+    except Exception:  # noqa: BLE001
+        logger.exception("failed to announce payment %s", payment.reference)
+
     return payment
 
 

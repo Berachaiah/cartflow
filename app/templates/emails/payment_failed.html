@@ -1,0 +1,37 @@
+{% extends "emails/_layout.html" %}
+{# Failed payment. The one thing this mail must NOT do is imply the order exists:
+   the order is not confirmed until payment succeeds, and a receipt-shaped email
+   for a declined charge is how people end up waiting for a delivery that was
+   never placed. It states the amount, that nothing was charged, and the retry. #}
+
+{% block subject %}Payment did not go through · {{ order_reference }}{% endblock %}
+
+{% block preheader %}Nothing was charged. You can retry the payment of {{ total_text }}.{% endblock %}
+
+{% block heading %}We could not complete your payment{% endblock %}
+
+{% block body_content %}
+<p style="margin:0 0 18px;">
+  Your payment of <strong style="color:#FFFFFF;">{{ total_text }}</strong> was not
+  completed, so <strong style="color:#FFFFFF;">nothing has been charged</strong> and the
+  order was not placed.
+</p>
+
+<p style="margin:0 0 20px; font-size:13px; color:#8DA0B8;">
+  Reference
+  <span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace; color:#C7D2E1;">{{ order_reference }}</span>
+</p>
+
+<p style="margin:0 0 6px;">
+  <a href="{{ cta_url }}"
+     style="display:inline-block; background-color:#7CC6FF; color:#07111F; text-decoration:none;
+            font-weight:700; font-size:15px; padding:13px 26px; border-radius:999px;">
+    Try again
+  </a>
+</p>
+
+<p style="margin:18px 0 0; font-size:13.5px; color:#8DA0B8;">
+  Declines are usually the card or the network timing out, not your account. If money left your
+  account and you are seeing this, reply with the reference above — the payment provider can trace it.
+</p>
+{% endblock %}

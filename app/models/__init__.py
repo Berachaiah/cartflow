@@ -36,12 +36,15 @@ from app.models.conversation import (  # noqa: F401
     ConversationStatus,
     Message,
     MessageKind,
+    MessageReaction,
     UserBlock,
 )
 # After `user`: posts.author_id and post_likes.user_id point at it.
 from app.models.post import Post, PostLike, PostStatus  # noqa: F401
 # After `user`: payments are per buyer, and checkout is the one place money moves.
 from app.models.payment import Payment, PaymentStatus  # noqa: F401
+# After `user`: a notification belongs to one account and may name an actor.
+from app.models.notification import Notification, NotificationKind  # noqa: F401
 # After `conversation`: reports.conversation_id points at it.
 from app.models.report import (  # noqa: F401
     REPORT_REASON_LABELS,

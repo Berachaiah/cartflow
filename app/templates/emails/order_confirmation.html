@@ -1,0 +1,66 @@
+{% extends "emails/_layout.html" %}
+{# Buyer receipt. Sent only after the provider's own record confirms the charge
+   (payments.settle), never on the redirect alone — a receipt for money that did
+   not move is worse than no receipt.
+
+   Structure follows what marketplaces actually send: what happened, the order
+   reference, the items, the total, then exactly one thing to do next. No
+   promotional blocks: this mail is transactional, and adding an offer would
+   change how it is classified. #}
+
+{% block subject %}Order confirmed · {{ order_reference }}{% endblock %}
+
+{% block preheader %}We received your payment of {{ total_text }}. {{ items|length }} item{{ '' if items|length == 1 else 's' }} on the way.{% endblock %}
+
+{% block heading %}Thanks, {{ display_name }} — your order is confirmed{% endblock %}
+
+{% block body_content %}
+<p style="margin:0 0 18px;">We have received your payment of
+  <strong style="color:#FFFFFF;">{{ total_text }}</strong> and the seller has been told.
+  They will confirm the order and arrange pickup or delivery with you.</p>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+       style="background-color:#0E1B2F; border-radius:12px; margin:0 0 20px;">
+  <tr>
+    <td style="padding:16px 18px;">
+      <p style="margin:0 0 6px; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#6F8099;">
+        Order reference
+      </p>
+      <p style="margin:0; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:14px; color:#FFFFFF;">
+        {{ order_reference }}
+      </p>
+    </td>
+  </tr>
+</table>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 6px;">
+  {% for item in items %}
+  <tr>
+    <td style="padding:9px 0; border-bottom:1px solid #22364F; color:#FFFFFF;">
+      {{ item.name }}
+      <span style="color:#6F8099;"> × {{ item.qty }}</span>
+    </td>
+    <td align="right" style="padding:9px 0; border-bottom:1px solid #22364F; color:#C7D2E1; white-space:nowrap;">
+      {{ "₦" if currency|upper == "NGN" else currency ~ " " }}{{ "{:,.0f}".format(item.line_total) }}
+    </td>
+  </tr>
+  {% endfor %}
+  <tr>
+    <td style="padding:14px 0 0; font-weight:700; color:#FFFFFF;">Total paid</td>
+    <td align="right" style="padding:14px 0 0; font-weight:700; color:#FFFFFF; white-space:nowrap;">{{ total_text }}</td>
+  </tr>
+</table>
+
+<p style="margin:22px 0 18px;">
+  <a href="{{ cta_url }}"
+     style="display:inline-block; background-color:#7CC6FF; color:#07111F; text-decoration:none;
+            font-weight:700; font-size:15px; padding:13px 26px; border-radius:999px;">
+    View your orders
+  </a>
+</p>
+
+<p style="margin:0; font-size:13.5px; color:#8DA0B8;">
+  If the order does not arrive or something is wrong with it, message the seller from that page —
+  the conversation stays attached to the order.
+</p>
+{% endblock %}

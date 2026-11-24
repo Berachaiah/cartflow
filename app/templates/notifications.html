@@ -55,9 +55,9 @@
     {"icon": "insights", "title": "Business alerts",
      "body": "New orders, low stock, payout status and review notifications for the shop you own.",
      "reason": "no orders, inventory or payouts tables yet — doc 16 §30"},
-    {"icon": "mark_email_read", "title": "Read state, push and email",
-     "body": "Marking one or all as read, clearing what you have read, and the same alerts arriving by push or email.",
-     "reason": "no notifications table to store read state — doc 11 §24"}
+    {"icon": "mark_email_read", "title": "Push notifications",
+     "body": "The same order and message alerts arriving on a phone or desktop when the app is closed.",
+     "reason": "no push subscription table or VAPID keys — doc 11 §14"}
 ] %}
 
 {% from "partials/ui.html" import empty_state as empty, section_head, page_head, pending_row %}
@@ -81,6 +81,55 @@
             {{ follow_total }} follower{{ '' if follow_total == 1 else 's' }}
         </a>
     </div>
+
+    <!-- ===================== UPDATES (real rows) =====================
+         Rows written by app/services/notifications.py: today that means money —
+         a receipt for the buyer, a sale alert for the seller, a declined charge.
+         Each row is the event as it happened (title/body are stored, not
+         re-derived), and the dot is the server's read state, not a guess. -->
+    {% if notification_rows %}
+    <section aria-labelledby="actUpdatesHead" class="scroll-mt-20">
+        <div class="flex items-center justify-between gap-3">
+            {{ section_head("Updates", id="actUpdatesHead") }}
+            {% if unread_total %}
+            <form method="post" action="/notifications/read-all">
+                <button type="submit"
+                        class="glass border border-border rounded-full px-3 py-1.5 text-[12px] font-semibold text-muted hover-card">
+                    Mark {{ unread_total }} as read
+                </button>
+            </form>
+            {% endif %}
+        </div>
+
+        <ul class="glass panel divide-y divide-border overflow-hidden">
+            {% for row in notification_rows %}
+            {% set icon = 'receipt_long' if row.kind in ('order_paid', 'payment_failed') else ('storefront' if row.kind == 'order_sold' else 'notifications') %}
+            <li class="flex items-start gap-3 px-3 py-3 {% if not row.read_at %}bg-primary/[0.04]{% endif %}">
+                <span class="w-9 h-9 shrink-0 rounded-xl grid place-items-center bg-card border border-border">
+                    <span class="material-symbols-outlined text-[19px] text-primary" aria-hidden="true">{{ icon }}</span>
+                </span>
+                <div class="min-w-0 flex-1">
+                    <p class="text-[13.5px] leading-snug">
+                        <span class="font-semibold">{{ row.title }}</span>
+                        {% if not row.read_at %}
+                        <span class="inline-block w-1.5 h-1.5 rounded-full bg-primary align-middle ml-1.5" title="Unread" aria-label="Unread"></span>
+                        {% endif %}
+                    </p>
+                    <p class="text-[12.5px] text-muted leading-snug mt-0.5">{{ row.body }}</p>
+                    <p class="text-[11.5px] text-muted mt-1">
+                        <time datetime="{{ row.created_at }}" title="{{ absolute_time(row.created_at) }}">{{ time_ago(row.created_at) }}</time>
+                        {% if row.emailed_at %}· emailed{% endif %}
+                    </p>
+                </div>
+                {% if row.url %}
+                <a href="{{ row.url }}"
+                   class="shrink-0 text-[12.5px] font-semibold text-primary hover:underline self-center">Open</a>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endif %}
 
     <!-- ===================== NEW FOLLOWERS (doc §5) =====================
          The only real notification in the app. Anchored so "Show more" returns

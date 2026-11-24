@@ -18,6 +18,7 @@ from app.services import avatar as avatar_service
 from app.services import catalog
 from app.services import follow as follow_service
 from app.services import messaging as messaging_service
+from app.services import notifications as notification_service
 from app.services import payments as payments_service
 from app.services import posts as posts_service
 from app.services import products as products_service
@@ -847,6 +848,11 @@ async def notifications(
     follows = await follow_service.list_followers(
         db, user_id=user.id, viewer_id=user.id, limit=show
     )
+    # Real rows from the notifications store: payments and failures write here
+    # (app/services/notifications.py), so this list is evidence of events rather
+    # than a rendering of the follow graph.
+    updates = await notification_service.list_for(db, user=user, limit=show)
+    unread_updates = sum(1 for row in updates if row.read_at is None)
 
     return templates.TemplateResponse(
         request=request,
@@ -855,6 +861,8 @@ async def notifications(
             user,
             page_title="Activity",
             active_nav="notifications",
+            notification_rows=updates,
+            unread_total=unread_updates,
             follow_rows=follows.items,
             follow_total=follows.total,
             # Whether a "Show more" link is worth drawing, and where it points.
@@ -864,6 +872,24 @@ async def notifications(
             has_more=follows.total > len(follows.items) and show < ACTIVITY_MAX,
         ),
     )
+
+
+@router.post("/notifications/read-all")
+async def notifications_read_all(
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    """Clear the unread state for the signed-in user, then return to the list.
+
+    A form POST rather than a fetch from the page: it is one action with one
+    visible outcome, and it must still work with JavaScript off. No CSRF token
+    because the app carries none anywhere yet — the session cookie is SameSite
+    lax, which is what stops a cross-site form from posting here.
+    """
+    if user is None:
+        return RedirectResponse("/login?next=/notifications", status_code=302)
+    await notification_service.mark_read(db, user=user)
+    return RedirectResponse("/notifications", status_code=303)
 
 
 @router.get("/messages", response_class=HTMLResponse)
