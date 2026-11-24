@@ -289,3 +289,7 @@
 /* Destructive items in a row/message menu: one colour step, not a red block. */
 .cm-mi.red{color:#E5484D}
 .cm-mi.red .material-symbols-outlined{color:#E5484D}
+/* The ⋮ sits over the row's right edge, so the text column keeps that width
+   clear: otherwise the timestamp ends up underneath the button on the row the
+   pointer happens to be on. */
+.cm-rm{padding-right:34px}
