@@ -1,0 +1,28 @@
+# Local databases (SQLite preview data never belongs in a deployment).
+*.db
+*.sqlite
+*.sqlite3
+
+# Environments, secrets and captured sessions.
+.env
+.env.*
+cookies.txt
+fresh_cookies.txt
+
+# Python virtualenvs and caches.
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node is build-time only here (Tailwind); the compiled CSS is committed.
+node_modules/
+
+# Test suite and dev scripts are not part of the deployed function.
+tests/
+scripts/
+docs/
+.claude/
