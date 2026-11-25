@@ -421,6 +421,7 @@ img.emoji{ height:1em; width:1em; margin:0 .05em 0 .1em; vertical-align:-.1em; d
    `:where()` keeps specificity at zero so an existing `rounded-full` or
    `bg-transparent` still wins. */
 :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="submit"]):not([type="color"]), textarea, select){
+  border: 0;
   border-radius: 12px;
   background-color: color-mix(in srgb, var(--c-card) 78%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-border) 88%, transparent);
@@ -432,12 +433,11 @@ img.emoji{ height:1em; width:1em; margin:0 .05em 0 .1em; vertical-align:-.1em; d
 :where(input, textarea, select):hover:not(:disabled):not(:focus){
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-text) 18%, var(--c-border));
 }
-:where(input, textarea, select):focus{
-  outline: none;
-  background-color: color-mix(in srgb, var(--c-card) 92%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 55%, transparent),
-              0 0 0 3px color-mix(in srgb, var(--brand) 16%, transparent);
-}
+/* Deliberately NO focus rule here. `.input` in cartflow-ui.css already owns the
+   field's focus look, and a second :where() rule at zero specificity only made
+   the two fight: it painted a shadow over the component's own ring and its
+   background over a field that had already chosen one. Fields that opt into
+   `.input` get the component treatment; bare inputs are covered once, below. */
 [data-theme="light"] :where(input, textarea, select){
   background-color: #FFFFFF;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, #0F172A 12%, transparent);
@@ -457,18 +457,49 @@ img.emoji{ height:1em; width:1em; margin:0 .05em 0 .1em; vertical-align:-.1em; d
 
    Controls that draw their own focus treatment (`.input`, the theme switch, the
    message composer) opt out of the generic ring with `.cf-no-ring`. */
-:where(a, button, input, textarea, select, summary, [tabindex]):focus{ outline: none; }
-:where(a, button, input, textarea, select, summary, [tabindex]):focus-visible{
-  outline: 2px solid var(--c-text);
+:where(a, button, summary, [tabindex]):focus{ outline: none; }
+:where(a, button, summary, [tabindex]):focus-visible{
+  outline: 2px solid var(--c-ink-primary);
   outline-offset: 2px;
-  border-radius: inherit;
 }
-/* Inputs get a ring that follows their own radius instead of a hard rectangle
-   offset outside the field, which is what made the blue box look pasted on. */
+/* Fields are excluded from the outline above and get a ring instead. The ring
+   follows the field's own radius, which is the point: an outline offset outside
+   a 17px pill reads as a hard rectangle pasted around it — the exact thing that
+   looked amateur.
+
+   Note what is NOT here any more: `border-radius: inherit`. `:focus-visible`
+   matches at 0,1,1, so inheriting the parent's radius outranked `.input`'s own
+   17px and squared the field off the moment it was focused. That single line was
+   the square box around the username field on the login screen. */
 textarea:focus-visible, input:focus-visible, .input:focus-visible{
   outline: none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-text) 45%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-ink-primary) 26%, transparent);
 }
+
+/* ===================== THE COMPOSER FIELD =====================
+   The post box used to be a bare <textarea> with Tailwind's default 1px
+   #6b7280 border and no radius: a grey rectangle floating inside a rounded
+   card, which is the "basic rectangle" the composer was called out for. It is
+   not an `.input` because it is borderless inside its own card, so it gets its
+   own treatment — a soft inset surface that reads as a field without drawing a
+   picture frame around the text. */
+textarea.cf-compose-field{
+  border-radius: 14px;
+  border: 0;
+  background-color: color-mix(in srgb, var(--c-bg) 55%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-border) 90%, transparent);
+  padding: 10px 12px;
+  transition: box-shadow .16s ease, background-color .16s ease;
+}
+textarea.cf-compose-field:hover:not(:focus){
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-text) 16%, var(--c-border));
+}
+textarea.cf-compose-field:focus{
+  outline: none;
+  background-color: color-mix(in srgb, var(--c-bg) 30%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-ink-primary) 50%, transparent);
+}
+[data-theme="light"] textarea.cf-compose-field{ background-color: #FFFFFF; }
 
 /* skeleton shimmer */
 @keyframes shimmer{ 0%{background-position:-400px 0} 100%{background-position:400px 0} }

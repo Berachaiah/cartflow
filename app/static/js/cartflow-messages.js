@@ -141,7 +141,7 @@
   }
   function rowMenu(c, anchor) {
     closeMenu();
-    const box = h('div', 'cm-menu'); box.id = 'cm-menu';
+    const box = h('div', 'cm-row-menu');
     const item = (icon, label, cls, fn) => {
       const b = btn('cm-mi' + (cls ? ' ' + cls : ''));
       b.append(ico(icon), h('span', '', label));
