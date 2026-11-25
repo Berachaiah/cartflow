@@ -257,12 +257,20 @@ async def test_password_change_points_at_the_flow_that_exists(client: AsyncClien
 
 async def test_unimplemented_preferences_are_named_not_switched(client: AsyncClient):
     """A toggle with no table behind it forgets every change. Only the theme
-    control — which is real, backed by localStorage — is rendered as a control."""
+    control — which is real, backed by localStorage — is rendered as a control.
+
+    That control is the three-way Appearance switch from
+    `partials/theme_switch.html` (system / light / dark), not the single
+    `themeRowBtn` this test used to look for: a binary toggle cannot express
+    "follow the device", and the auth screens already render the same partial.
+    """
     await _signup(client, "ada")
     await _login(client, "ada")
 
     body = (await client.get("/settings")).text
-    assert 'id="themeRowBtn"' in body
+    assert 'class="cf-theme-switch' in body
+    for pref in ("system", "light", "dark"):
+        assert f'data-cf-theme="{pref}"' in body, f"the Appearance control lost its {pref} segment"
     # Graduation is the page's only real switch and it's student-gated, so a
     # non-student's markup carries no toggle element at all. (Matched on the
     # button id rather than counting role="switch" — the CSS comment explaining

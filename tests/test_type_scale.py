@@ -37,7 +37,10 @@ _HEADING = re.compile(r"<h([1-4])\s[^>]*class=\"([^\"]*)\"")
 # redundant or would fight them. `.auth-title` styles the login/signup family —
 # the pages the report named as correct — and `.section-label` is the small
 # uppercase group label above a panel, deliberately not a heading tier.
-SELF_STYLED = ("auth-title", "section-label")
+# `.cf-splash-word` is the wordmark on the boot splash: base.html styles it at
+# 26px/900 in the display face, over a dark and a light palette. It is a
+# component, not a heading tier — the only h1 in the app that is a logo.
+SELF_STYLED = ("auth-title", "section-label", "cf-splash-word")
 
 
 def _canonical_section_classes() -> set[str]:

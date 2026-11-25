@@ -4,19 +4,24 @@ Theme defaults and the single point of control.
 Three separate requirements are locked in here, and each one broke in a way that
 was invisible in a screenshot:
 
-1. LIGHT IS THE DEFAULT, AND IT MUST NOT FLASH. The light palette is expressed
-   as `[data-theme="light"]` overrides on top of a dark `:root`, so "default to
-   light" is not a CSS change — it means the attribute has to be on <html>
-   before the first paint. The theme script used to live at the end of <body>,
-   which runs after the document has painted: every single load showed a frame
-   of the dark palette and then snapped to light.
+1. THE THEME IS RESOLVED BEFORE THE FIRST PAINT. The light palette is
+   expressed as `[data-theme="light"]` overrides on top of a dark `:root`, so
+   "which palette" is not a CSS change — it means the attribute has to be on
+   <html> before the first paint. The theme script used to live at the end of
+   <body>, which runs after the document has painted: every single load showed
+   a frame of the dark palette and then snapped to light.
+
+   The shipped default is the SYSTEM preference, not a hard-coded light: an
+   installed app that ignores the phone's own appearance setting looks broken
+   beside every other app on it. On a phone that is not in dark mode that still
+   resolves to the light palette, which is what the theme-color meta carries.
 
 2. AN ABSENT KEY MEANS "HASN'T CHOSEN". applyTheme() used to call
    localStorage.setItem unconditionally, so merely rendering a page wrote the
    key from the fallback value. That makes "hasn't chosen" indistinguishable
-   from "chose light" after one visit — the default could never be changed again
-   for anyone who had already loaded the app, and honouring prefers-color-scheme
-   later becomes impossible to add. Only toggleTheme() may write.
+   from "chose light" after one visit — the default could never change again for
+   anyone who had loaded the app, and following the OS would be impossible.
+   Only cfSetTheme() may write.
 
 3. ONE CONTROL, IN SETTINGS. The toggle used to sit in the sidebar, the mobile
    top bar, the bare footer, home.html and shop.html — five copies of a
@@ -76,15 +81,31 @@ def test_theme_bootstrap_is_blocking():
     )
 
 
-def test_absent_key_resolves_to_light():
-    """Only the 'dark' string opts out of light — anything else falls through."""
+def test_absent_or_junk_key_resolves_to_the_system_preference():
+    """An unset key follows the device; a junk key must not decide anything.
+
+    The app has three preferences (system / light / dark) and `system` is what
+    an absent key means — this test used to demand that only the literal 'dark'
+    opted out of light, which was true of the two-state version and is false of
+    the three-state one. What still has to hold: no stored value can put a
+    palette on <html> that the user did not ask for, and a load with storage
+    disabled still pins a theme rather than rendering the bare :root.
+    """
     head = _head()
-    assert re.search(
-        r"getItem\(\s*['\"]" + STORAGE_KEY + r"['\"]\s*\)\s*===\s*['\"]dark['\"]", head
-    ), (
-        "the bootstrap no longer tests for the 'dark' value specifically. It must, "
-        "because every other state — absent key, junk value, storage disabled — has to "
-        "resolve to the light default"
+    assert re.search(r"localStorage\.getItem\(\s*['\"]" + STORAGE_KEY + r"['\"]\s*\)", head), (
+        "the head bootstrap no longer reads the stored preference, so the first "
+        "paint cannot know which theme to use"
+    )
+    # Exactly three values are accepted; anything else resolves to 'system'.
+    assert "['light', 'dark', 'system']" in BASE, "the preference list is no longer the documented three"
+    assert re.search(r"indexOf\(stored\)\s*!==\s*-1\s*\?\s*stored\s*:\s*'system'", BASE), (
+        "a junk or absent key no longer falls back to 'system' — it must not fall back "
+        "to a specific palette, because 'hasn't chosen' and 'chose light' are different"
+    )
+    # Dark is opt-in twice over: an explicit 'dark', or 'system' on a dark OS.
+    assert "cfPref === 'dark'" in head, "an explicit dark preference is no longer honoured in <head>"
+    assert "prefers-color-scheme: dark" in head, (
+        "the head bootstrap no longer consults the OS, so 'system' cannot resolve before paint"
     )
     assert head.count("setAttribute('data-theme', 'light')") >= 2, (
         "the catch branch is missing its data-theme fallback: with storage disabled "
@@ -120,31 +141,68 @@ def test_apply_theme_does_not_write_to_storage():
     )
 
 
-def test_toggle_theme_is_the_only_writer():
-    assert "setItem" in _fn_body("toggleTheme"), (
-        "toggleTheme() no longer persists, so the choice is lost on navigation"
+def test_cf_set_theme_is_the_only_writer():
+    """One writer app-wide, and the binary flip goes through it.
+
+    This used to assert that toggleTheme() held the setItem call. The rule is
+    the same one — a single place may persist a preference — but the writer is
+    now cfSetTheme(), which also validates the value against the three
+    preferences. A toggleTheme() that wrote storage itself would be a second
+    path that could leave something cfSetTheme() would have rejected.
+    """
+    assert "setItem" in _fn_body("cfSetTheme"), (
+        "cfSetTheme() no longer persists, so the choice is lost on navigation"
     )
-    # One writer, app-wide.
-    writers = re.findall(r"setItem\(\s*['\"]" + STORAGE_KEY + r"['\"]", BASE)
+    assert "cfSetTheme(" in _fn_body("toggleTheme"), (
+        "toggleTheme() stopped delegating to cfSetTheme(), so a flip would bypass the "
+        "validation and the switch sync"
+    )
+    # The write goes through the shared constant rather than repeating the
+    # literal, so a rename cannot leave the writer pointing at a key the reader
+    # never looks up. Count both spellings: a second writer that used the
+    # literal would be exactly the drift this test exists to catch.
+    assert f"const CF_THEME_KEY = '{STORAGE_KEY}'" in BASE, (
+        "CF_THEME_KEY no longer holds the key the head bootstrap reads, so the reader "
+        "and the writer can disagree about where the preference lives"
+    )
+    writers = re.findall(
+        r"setItem\(\s*(?:['\"]" + STORAGE_KEY + r"['\"]|CF_THEME_KEY)", BASE
+    )
     assert len(writers) == 1, (
         f"{len(writers)} places write the theme key in base.html; there must be exactly "
-        "one (toggleTheme) or the 'hasn't chosen' state leaks away again"
+        "one (cfSetTheme) or the 'hasn't chosen' state leaks away again"
     )
 
 
-def test_toggle_theme_stays_global():
-    """settings.html's Appearance row is the only caller — and it calls it by name.
+def test_the_theme_control_is_one_shared_switch():
+    """Settings and the auth screens render the same partial; the state stays global.
 
-    Wrapping this in an IIFE or renaming it breaks that page's single theme
-    control silently: nothing else in the app references it, so no other test
-    or page would fail.
+    Settings used to render its own `toggleTheme()` button, which is why this
+    test looked for that call. A three-way preference cannot be a binary toggle,
+    so the row now renders `partials/theme_switch.html` — the same control the
+    auth screens show. What has to stay true is that the partial carries no
+    script of its own and the state and click handling remain top-level in
+    base.html, or the switch would render as three dead buttons on any page.
     """
     settings = (TEMPLATES / "settings.html").read_text(encoding="utf-8")
-    assert "toggleTheme()" in settings, "settings.html stopped calling toggleTheme()"
-    assert re.search(r"^\s*function toggleTheme\(", BASE, re.MULTILINE), (
-        "toggleTheme is no longer a top-level function declaration, so the global "
-        "settings.html depends on may not exist"
+    switch = (TEMPLATES / "partials" / "theme_switch.html").read_text(encoding="utf-8")
+    assert "partials/theme_switch.html" in settings, "settings.html stopped importing the switch"
+    assert "theme_switch()" in settings, "settings.html stopped rendering the Appearance control"
+    for pref in ('"system"', '"light"', '"dark"'):
+        assert f"data-cf-theme={pref}" in switch, f"the switch lost its {pref} segment"
+    assert "<script" not in switch, (
+        "the switch partial grew its own script; it must stay state-free or two copies on "
+        "one page would fight over the click"
     )
+    assert re.search(r"^\s*function cfSetTheme\(", BASE, re.MULTILINE), (
+        "cfSetTheme is no longer a top-level function declaration, so the global the "
+        "switch depends on may not exist"
+    )
+    assert re.search(r"^\s*function toggleTheme\(", BASE, re.MULTILINE), (
+        "toggleTheme is no longer top-level; keeping the binary flip global is what lets a "
+        "future keyboard shortcut or control reuse it"
+    )
+    assert "[data-cf-theme]" in BASE, "base.html lost the delegated listener for the switch"
 
 
 # --- 3. one theme control, and it lives in Settings ---------------------
