@@ -22,6 +22,11 @@ seeded story still moves the number by one. `post.comment_count` is never
 written from a table above — it is recomputed from the rows inserted, which is
 the same invariant `services/posts.add_comment` maintains.
 
+Reposts follow the same shape: `post_reposts` rows are real (one per post and
+account, the composite PK being the rule `services/posts.toggle_repost` relies
+on), and `repost_count` is recounted from them after the insert. It is never an
+invented number, so the card's "N reposts" line and the button's next tap agree.
+
 Stories are seeded with `expires_at = NULL` (never expires). A walkthrough has
 to survive overnight; the API still sets a 24-hour clock on everything people
 create.
@@ -53,7 +58,7 @@ from sqlalchemy import delete, func, select  # noqa: E402
 from sqlalchemy.ext.asyncio import async_sessionmaker  # noqa: E402
 
 from app.database.session import engine  # noqa: E402
-from app.models.post import Post, PostComment  # noqa: E402
+from app.models.post import Post, PostComment, PostRepost  # noqa: E402
 from app.models.story import Story, StoryLike, StoryView  # noqa: E402
 from app.models.user import User  # noqa: E402
 
@@ -192,6 +197,24 @@ COMMENTS: list[tuple[str, list[tuple[str, str, int]]]] = [
     ),
 ]
 
+# (post body prefix, [handles who reposted it]) — demo accounts only, the same
+# ones that like and comment, so a reposted post is a real row for a real user.
+REPOSTS: list[tuple[str, list[str]]] = [
+    ("Drop 02 is live.", ["studentuser", "thebest"]),
+    ("Seraph, restocked.", ["studentuser"]),
+    ("Midnight Skully is back.", ["studentuser", "thebest"]),
+    ("Heroes Are Made.", ["studentuser"]),
+    ("The Cipher.", ["thebest"]),
+    ("Hoodie weather is back on campus.", ["studentuser", "mbl.label"]),
+    ("Lunch sorted.", ["thebest"]),
+    # The three posts below are not from seed_posts.py (they were written in the
+    # app), but they sit in the same feed, and a zero beside the others reads as
+    # a broken count rather than a quiet post.
+    ("Restock day", ["studentuser", "thebest"]),
+    ("Anyone selling a desk lamp", ["mbl.label"]),
+    ("Two-piece fit", ["studentuser"]),
+]
+
 
 async def main(reset: bool) -> None:
     if not os.environ["DATABASE_URL"].startswith("sqlite"):
@@ -229,8 +252,9 @@ async def main(reset: bool) -> None:
             await db.execute(delete(StoryView))
             await db.execute(delete(Story))
             await db.execute(delete(PostComment))
+            await db.execute(delete(PostRepost))
             await db.commit()
-            print("Reset: removed every story, story like/view and comment.")
+            print("Reset: removed every story, story like/view, comment and repost.")
 
         # ---- stories ------------------------------------------------------
         added = 0
@@ -345,11 +369,45 @@ async def main(reset: bool) -> None:
         await db.commit()
         print(f"Added {made_comments} comments.")
 
+        # ---- reposts -------------------------------------------------------
+        made_reposts = 0
+        for prefix, handles in REPOSTS:
+            post = next((p for p in posts if p.body.startswith(prefix)), None)
+            if post is None:
+                print(f"  post not found, skipping reposts: {prefix!r}")
+                continue
+            for handle in handles:
+                author = people[handle.lower()]
+                if await db.get(PostRepost, {"post_id": post.id, "user_id": author.id}) is None:
+                    db.add(PostRepost(post_id=post.id, user_id=author.id))
+                    made_reposts += 1
+            await db.flush()
+
+            # Same mirror rule as comments: the count is the rows, not a number
+            # kept somewhere else that can drift away from them.
+            count = (
+                await db.execute(
+                    select(func.count())
+                    .select_from(PostRepost)
+                    .where(PostRepost.post_id == post.id)
+                )
+            ).scalar_one()
+            post.repost_count = int(count)
+
+        await db.commit()
+        print(f"Added {made_reposts} reposts.")
+
         total_stories = (await db.execute(select(func.count()).select_from(Story))).scalar_one()
         total_comments = (
             await db.execute(select(func.count()).select_from(PostComment))
         ).scalar_one()
-        print(f"Now: {total_stories} stories, {total_comments} comments.")
+        total_reposts = (
+            await db.execute(select(func.count()).select_from(PostRepost))
+        ).scalar_one()
+        print(
+            f"Now: {total_stories} stories, {total_comments} comments, "
+            f"{total_reposts} reposts."
+        )
 
     await engine.dispose()
     print("\nLook at: /   (rail, comment previews)   /@bastilluxeapparel   /@studentuser")
