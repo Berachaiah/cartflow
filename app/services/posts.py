@@ -12,12 +12,13 @@ import uuid
 from collections.abc import Sequence
 
 from fastapi import UploadFile
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import timeutils
 from app.core.exceptions import ValidationAppError
 from app.integrations import cloudinary_client
-from app.models.post import Post
+from app.models.post import Post, PostComment, PostRepost
 from app.models.user import User
 from app.repositories.post import PostRepository
 from app.services import avatar as avatar_service
@@ -37,6 +38,16 @@ _POST_SUBFOLDER = "posts"
 # the limit is about upload cost and a sane caption-to-photo ratio, not layout.
 MAX_POST_IMAGES = 10
 
+# A comment's ceiling. Short enough that a comment stays a comment, long enough
+# that a price question fits; the card renders the whole thing, so this is also
+# what keeps one reply from pushing every other card off the screen.
+MAX_COMMENT_CHARS = 600
+
+# How many comments a feed card carries as its preview. Two is the count the
+# design uses (doc 06 §16): enough to show there is a conversation, few enough
+# that the card does not become a comment section.
+PREVIEW_COMMENTS = 2
+
 
 def _thousands(value: int) -> str:
     """`2847` → `2,847`, matching how the hardcoded counts read. Not `naira()`:
@@ -50,6 +61,8 @@ def to_feed_dict(
     *,
     liked: bool = False,
     following: bool = False,
+    reposted: bool = False,
+    preview: list[dict] | None = None,
     liked_ids: set[uuid.UUID] | None = None,
     followed_ids: set[uuid.UUID] | None = None,
 ) -> dict:
@@ -89,17 +102,28 @@ def to_feed_dict(
         "likes": _thousands(post.like_count or 0),
         "likes_raw": int(post.like_count or 0),
         "comments": _thousands(post.comment_count or 0),
+        "comments_raw": int(post.comment_count or 0),
+        "reposts": _thousands(post.repost_count or 0),
+        "repost_count": int(post.repost_count or 0),
+        "reposted": reposted,
         "liked": liked,
-        # No comments table yet, so there is no preview to show. The card skips the
-        # block entirely when this is empty rather than inventing a thread.
-        "preview": [],
+        # The newest two, shaped for the card. Empty means no comments, and the
+        # block says so rather than inventing a thread.
+        "preview": list(preview or []),
     }
 
 
 async def _shape(
     db: AsyncSession, rows: list[tuple[Post, User]], *, viewer: User | None
 ) -> list[dict]:
-    """Attach the viewer's like/follow state to a page of rows in two queries."""
+    """Attach the viewer's like/follow/repost state, and each post's newest two
+    comments, to a page of rows.
+
+    Five queries for the whole page, not five per card. The comment query is
+    ordered newest-first and trimmed in Python because "two per post" is a
+    window function on Postgres and a non-feature on SQLite — and this app has to
+    behave the same on both.
+    """
     if not rows:
         return []
     repo = PostRepository(db)
@@ -110,12 +134,54 @@ async def _shape(
     liked = await repo.liked_ids(viewer_id=viewer_id, post_ids=post_ids)
     followed = await repo.followed_author_ids(viewer_id=viewer_id, author_ids=author_ids)
 
+    comment_rows = (
+        await db.execute(
+            select(PostComment)
+            .where(
+                PostComment.post_id.in_(post_ids),
+                PostComment.deleted_at.is_(None),
+            )
+            .order_by(PostComment.created_at.desc())
+        )
+    ).scalars().all()
+    previews: dict[uuid.UUID, list[dict]] = {}
+    for comment in comment_rows:
+        bucket = previews.setdefault(comment.post_id, [])
+        if len(bucket) >= PREVIEW_COMMENTS:
+            continue
+        bucket.append(
+            {
+                "user": comment.author.display_name or comment.author.username,
+                "handle": comment.author.username,
+                "text": comment.body,
+            }
+        )
+    # Newest-first became oldest-first inside a preview: a card reads as a
+    # conversation, and "second comment, first comment" is not one.
+    for bucket in previews.values():
+        bucket.reverse()
+
+    reposted: set[uuid.UUID] = set()
+    if viewer_id is not None:
+        reposted = set(
+            (
+                await db.execute(
+                    select(PostRepost.post_id).where(
+                        PostRepost.user_id == viewer_id,
+                        PostRepost.post_id.in_(post_ids),
+                    )
+                )
+            ).scalars().all()
+        )
+
     return [
         to_feed_dict(
             post,
             author,
             liked=post.id in liked,
             following=author.id in followed,
+            reposted=post.id in reposted,
+            preview=previews.get(post.id, []),
         )
         for post, author in rows
     ]
@@ -287,12 +353,123 @@ async def toggle_like(
     return liked, int(post.like_count or 0)
 
 
+async def _post_by_public_id(db: AsyncSession, public_id: uuid.UUID) -> Post:
+    """Resolve a post for a write, or raise the same 404 a read would.
+
+    Every write (comment, repost, like) needs this, and the alternative was the
+    same four lines three times with one of them eventually forgetting the
+    `deleted_at` check.
+    """
+    from app.core.exceptions import NotFoundError
+
+    post = await PostRepository(db).by_public_id(public_id)
+    if post is None:
+        raise NotFoundError("That post is no longer available.")
+    return post
+
+
+async def add_comment(
+    db: AsyncSession, *, viewer: User, public_id: uuid.UUID, body: str
+) -> tuple[dict, int]:
+    """Comment on a post. Returns (the comment as the card renders it, count).
+
+    A row is inserted first and the denormalised `comment_count` is bumped in
+    the same transaction, so the number under the card can never be a comment
+    behind the list it opens.
+    """
+    text = (body or "").strip()
+    if not text:
+        raise ValidationAppError(
+            "Write something first.", fields={"body": "A comment cannot be empty."}
+        )
+    if len(text) > MAX_COMMENT_CHARS:
+        raise ValidationAppError(
+            f"That comment is too long. Keep it under {MAX_COMMENT_CHARS} characters.",
+            fields={"body": f"Maximum is {MAX_COMMENT_CHARS} characters."},
+        )
+
+    post = await _post_by_public_id(db, public_id)
+    comment = PostComment(post_id=post.id, author_id=viewer.id, body=text)
+    db.add(comment)
+    post.comment_count = max(0, (post.comment_count or 0) + 1)
+    await db.commit()
+
+    return (
+        {
+            "user": viewer.display_name or viewer.username,
+            "handle": viewer.username,
+            "text": text,
+        },
+        int(post.comment_count or 0),
+    )
+
+
+async def list_comments(
+    db: AsyncSession, *, public_id: uuid.UUID, limit: int = 50
+) -> list[dict]:
+    """Every visible comment on one post, oldest first — what the card expands
+    into when "View all N comments" is tapped.
+
+    Oldest first here, unlike the two-comment preview, because this is a thread
+    read from the top.
+    """
+    post = await _post_by_public_id(db, public_id)
+    rows = (
+        await db.execute(
+            select(PostComment)
+            .where(
+                PostComment.post_id == post.id, PostComment.deleted_at.is_(None)
+            )
+            .order_by(PostComment.created_at.asc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return [
+        {
+            "user": c.author.display_name or c.author.username,
+            "handle": c.author.username,
+            "text": c.body,
+        }
+        for c in rows
+    ]
+
+
+async def toggle_repost(
+    db: AsyncSession, *, viewer: User, public_id: uuid.UUID
+) -> tuple[bool, int]:
+    """Repost or un-repost. Returns (now_reposted, repost_count).
+
+    A toggle, like a like: the client has one button, and a second tap must land
+    on a state rather than a 409.
+    """
+    post = await _post_by_public_id(db, public_id)
+    existing = await db.get(PostRepost, {"post_id": post.id, "user_id": viewer.id})
+    if existing is None:
+        db.add(PostRepost(post_id=post.id, user_id=viewer.id))
+        post.repost_count = max(0, (post.repost_count or 0) + 1)
+        reposted = True
+    else:
+        await db.execute(
+            delete(PostRepost).where(
+                PostRepost.post_id == post.id, PostRepost.user_id == viewer.id
+            )
+        )
+        post.repost_count = max(0, (post.repost_count or 0) - 1)
+        reposted = False
+    await db.commit()
+    return reposted, int(post.repost_count or 0)
+
+
 __all__ = [
+    "MAX_COMMENT_CHARS",
     "MAX_POST_IMAGES",
+    "add_comment",
     "by_author",
     "create_post",
     "feed",
     "liked_by_user",
+    "list_comments",
     "to_feed_dict",
     "toggle_like",
+    "toggle_repost",
 ]

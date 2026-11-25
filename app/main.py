@@ -21,6 +21,7 @@ from app.routers import (
     pages,
     payments,
     posts,
+    stories,
     universities,
     users,
     ws,
@@ -151,6 +152,8 @@ app.include_router(users.router)
 app.include_router(business.router)
 app.include_router(messages.router)
 app.include_router(posts.router)
+# Stories: the rail above the feed and the viewer's like/view/repost controls.
+app.include_router(stories.router)
 # Flutterwave: the checkout call, its redirect back, and the signed webhook.
 app.include_router(payments.router)
 # The messaging socket. Registered like any other router — it declares

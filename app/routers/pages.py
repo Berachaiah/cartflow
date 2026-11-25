@@ -22,6 +22,7 @@ from app.services import notifications as notification_service
 from app.services import payments as payments_service
 from app.services import posts as posts_service
 from app.services import products as products_service
+from app.services import stories as stories_service
 from app.services import google_oauth
 
 router = APIRouter()
@@ -146,6 +147,11 @@ async def home(
             page_title="Home",
             active_nav="home",
             feed_posts=await posts_service.feed(db, viewer=user),
+            # The rail above the feed: one group per account with a live story.
+            # Passed as data rather than rendered into JavaScript by the template
+            # because the viewer, the ring and the seen state all have to agree,
+            # and the browser is the only place they meet.
+            story_groups=await stories_service.rail(db, viewer=user),
             # The composer shows its photo control only when the server can store
             # a photo, so an install without Cloudinary renders a caption box
             # instead of a button that answers 503.

@@ -90,7 +90,7 @@
              abbreviate for someone — that is their shop. -->
         <div class="flex gap-4 overflow-x-auto hide-scrollbar pb-1" id="storyRow">
             <div class="flex flex-col items-center flex-shrink-0 w-[76px]">
-                <button type="button" onclick="showToast('Story composer — coming soon')" aria-label="Add to your story"
+                <button type="button" onclick="cfStoryCompose(this)" aria-label="Add to your story"
                         class="w-16 h-16 sm:w-[68px] sm:h-[68px] rounded-full bg-card border border-dashed border-primary flex items-center justify-center hover-card relative">
                     {% if current_user %}
                         {{ avatar(current_user.display_name, current_user.username, "w-full h-full", "rounded-full", src=avatar_src(current_user, "sm")) }}
@@ -101,7 +101,28 @@
                 </button>
                 <span class="text-[11px] mt-1.5 w-full text-center leading-tight break-words line-clamp-2">Your Story</span>
             </div>
-            <!-- brand stories injected by JS -->
+            {# The rail is REAL: one ring per account that has a live story, newest
+               activity first, with a muted ring once every slide has been seen.
+               It used to be product photos mounted in a shop's ring, which meant
+               the viewer showed a listing as if it were that shop's story and
+               nothing could be liked or replied to. #}
+            {% for group in story_groups %}
+            <button type="button" class="flex flex-col items-center flex-shrink-0 w-[76px]"
+                    onclick="cfOpenStory({{ loop.index0 }})"
+                    aria-label="View {{ group.name }}'s story, {{ group.stories | length }} slide{{ 's' if group.stories | length > 1 else '' }}">
+                <span class="story-ring{{ ' is-seen' if group.seen else ' story-live' }}">
+                    {% if group.avatar %}
+                    <img src="{{ group.avatar }}" alt="" loading="lazy" class="w-16 h-16 rounded-full object-cover bg-card">
+                    {% else %}
+                    <svg class="w-16 h-16 rounded-full overflow-hidden" aria-hidden="true" focusable="false"><use href="#cf-avatar"/></svg>
+                    {% endif %}
+                </span>
+                <span class="text-[11px] mt-1.5 w-full text-center leading-tight break-words line-clamp-2">{{ group.name }}</span>
+            </button>
+            {% endfor %}
+            {% if not story_groups %}
+            <p class="text-xs text-muted self-center pl-1">No stories yet today.</p>
+            {% endif %}
         </div>
 
         <!-- ===================== COMPOSER =====================
@@ -262,8 +283,11 @@
                     <button class="save-action flex items-center justify-center w-10 h-10 rounded-full hover-card" aria-label="Save" onclick="toggleSave(this)"><span class="material-symbols-outlined">bookmark</span></button>
                 </div>
 
-                <!-- like count -->
-                <p class="px-3.5 sm:px-4 pt-1 text-sm font-semibold"><span class="like-count">{{ post.likes }}</span> likes</p>
+                <!-- like + repost counts. The repost number is `posts.repost_count`,
+                     the same mirror the button's API call updates. -->
+                <p class="px-3.5 sm:px-4 pt-1 text-sm font-semibold"><span class="like-count">{{ post.likes }}</span> likes
+                    <span class="repost-line{{ ' hidden' if not post.repost_count else '' }}"> · <span class="repost-count">{{ post.reposts }}</span> repost{{ 's' if post.repost_count != 1 else '' }}</span>
+                </p>
 
                 <!-- caption with inline @mentions / #hashtags -->
                 <p class="px-3.5 sm:px-4 pt-1.5 leading-relaxed">
@@ -316,22 +340,25 @@
                 </div>
                 {% endif %}
 
-                <!-- comments -->
+                <!-- comments. The two newest are rendered server-side; "View all"
+                     fetches the rest, and the box writes a real row (post_comments)
+                     instead of the appended <p> this used to fake. -->
                 <div class="px-3.5 sm:px-4 pt-3 pb-4 comments-block">
-                    <button class="text-sm text-muted hover:text-primary transition" onclick="toggleComments(this)">View all {{ post.comments }} comments</button>
-                    <div class="comments-list space-y-1.5 mt-2 hidden">
+                    <button class="comments-toggle text-sm text-muted hover:text-primary transition{{ ' hidden' if post.comments_raw <= 2 else '' }}"
+                            onclick="toggleComments(this)">View all <span class="comment-count">{{ post.comments }}</span> comments</button>
+                    <div class="comments-list space-y-1.5 mt-2">
                         {% for c in post.preview %}
-                        <p class="text-sm"><a href="/discover?q=%40{{ c.user }}" class="font-semibold hover:underline">{{ c.user }}</a> <span class="caption-text">{{ c.text }}</span></p>
+                        <p class="text-sm"><a href="/@{{ c.handle }}" class="font-semibold hover:underline">{{ c.user }}</a> <span class="caption-text">{{ c.text }}</span></p>
                         {% endfor %}
                     </div>
                     <div class="flex items-center gap-3 mt-3">
                         {% if current_user %}
                             {{ avatar(current_user.display_name, current_user.username, "w-8 h-8", "rounded-full", src=avatar_src(current_user, "sm")) }}
+                            <input type="text" aria-label="Add a comment" placeholder="Add a comment…" class="flex-1 bg-card border border-border rounded-full px-4 py-2 text-sm outline-none focus:border-primary"
+                                   onkeydown="if(event.key==='Enter'){cfAddComment(this)}">
                         {% else %}
-                            <span class="w-8 h-8 rounded-full bg-card flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-muted text-[18px]">person</span></span>
+                            <a href="/login?next=/" class="text-sm text-muted">Log in to join the conversation</a>
                         {% endif %}
-                        <input type="text" aria-label="Add a comment" placeholder="Add a comment…" class="flex-1 bg-card border border-border rounded-full px-4 py-2 text-sm outline-none focus:border-primary"
-                               onkeydown="if(event.key==='Enter'&&this.value.trim()){addComment(this)}">
                     </div>
                 </div>
             </article>
@@ -480,7 +507,20 @@
 {% block extra_style %}
 
 /* ===== feed styles ===== */
-.story-ring{ background:linear-gradient(135deg,#FFB547,#7CC6FF); padding:2px; border-radius:999px; cursor:pointer; transition:.25s; }
+.story-ring{ background:linear-gradient(135deg,#FFB547,#7CC6FF); padding:2px; border-radius:999px; cursor:pointer; transition:.25s; display:block; }
+/* Seen: no gradient, just a quiet border. The ring is the only “anything new”
+   signal in a rail, so a watched slide must stop competing for attention. */
+.story-ring.is-seen{ background:var(--c-border); }
+.story-ring > img, .story-ring > svg{ border:2px solid var(--c-bg, #000); display:block; }
+
+/* Story viewer controls. White on black media, never theme tokens: these sit on
+   top of a photograph that could be any colour. */
+.story-nav{ position:absolute; top:50%; transform:translateY(-50%); width:42px; height:42px; border-radius:999px; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.35); backdrop-filter:blur(8px); color:#fff; border:1px solid rgba(255,255,255,.18); }
+.story-nav:hover{ background:rgba(0,0,0,.55); }
+.story-act{ position:relative; display:flex; align-items:center; justify-content:center; width:48px; height:48px; border-radius:999px; }
+.story-act-n{ position:absolute; bottom:2px; right:6px; font-size:10px; font-weight:700; }
+.story-act.reposted{ color:#7CC6FF; }
+.story-foot{ background:linear-gradient(to top, rgba(0,0,0,.7), transparent); }
 .story-ring:hover{ transform:scale(1.05); }
 .story-ring.story-live{ animation:ringPulse 2.2s ease-in-out infinite; }
 @keyframes ringPulse{ 0%,100%{ box-shadow:0 0 0 0 rgba(124,198,255,.45); } 50%{ box-shadow:0 0 0 6px rgba(124,198,255,0); } }
@@ -574,23 +614,45 @@
         <div class="absolute top-4 left-4 right-4 flex gap-1.5" id="storyProgressRow"></div>
         <div class="absolute top-8 left-4 right-4 flex items-center justify-between">
             <div class="flex items-center gap-3">
-                <img id="storyAvatar" class="w-10 h-10 rounded-full object-cover border border-white/40" src="" alt="">
-                <div>
-                    <p id="storyName" class="on-media font-semibold text-sm"></p>
+                {# A container, not an <img>: an account with no photo has no src to
+                   put here, and the viewer must fall back to the same silhouette
+                   every other surface draws. #}
+                <span id="storyAvatar" class="w-10 h-10 rounded-full overflow-hidden shrink-0 border border-white/30"></span>
+                <div class="min-w-0">
+                    <a id="storyName" href="#" class="on-media font-semibold text-sm block truncate"></a>
                     {# on-media rather than text-white/70: the sibling above uses it,
                        and it carries the text-shadow that keeps a caption legible
                        over a bright photo. Opacity gives the same recessed look
                        without opting out of the shadow. #}
-                    <p class="on-media text-xs opacity-70">Just now</p>
+                    <p id="storyMeta" class="on-media text-xs opacity-70 truncate"></p>
                 </div>
             </div>
             <button onclick="closeStory()" class="on-media" aria-label="Close story"><span class="material-symbols-outlined">close</span></button>
         </div>
-        <button onclick="prevStory()" class="absolute left-0 top-0 h-full w-1/3" aria-label="Previous story"></button>
-        <button onclick="nextStory()" class="absolute right-0 top-0 h-full w-1/3" aria-label="Next story"></button>
-        <div class="absolute bottom-6 left-4 right-4 flex items-center gap-3">
-            <input type="text" placeholder="Reply…" aria-label="Reply to story" class="flex-1 bg-white/10 backdrop-blur-md border border-white/20 rounded-full px-5 py-3 on-media text-sm outline-none placeholder-white/60">
-            <button onclick="pulseStoryLike(this)" class="on-media" aria-label="Like story"><span class="material-symbols-outlined text-3xl">favorite</span></button>
+        {# Visible arrows, not just the invisible third-of-the-screen tap zones a
+           story viewer normally uses: on a laptop the tap zones are undiscoverable
+           and the rail is browsed with a mouse. The zones stay for touch. #}
+        <button onclick="cfPrevStory()" class="absolute left-0 top-0 h-full w-1/3" aria-label="Previous story"></button>
+        <button onclick="cfNextStory()" class="absolute right-0 top-0 h-full w-1/3" aria-label="Next story"></button>
+        <button onclick="cfPrevStory()" class="story-nav left-2" aria-label="Previous story" tabindex="-1"><span class="material-symbols-outlined" aria-hidden="true">chevron_left</span></button>
+        <button onclick="cfNextStory()" class="story-nav right-2" aria-label="Next story" tabindex="-1"><span class="material-symbols-outlined" aria-hidden="true">chevron_right</span></button>
+
+        <div class="absolute bottom-0 left-0 right-0 p-4 space-y-3 story-foot">
+            <p id="storyCaption" class="on-media text-sm leading-snug hidden"></p>
+            <a id="storyProduct" href="#" class="hidden items-center gap-2 bg-black/45 backdrop-blur-md px-3.5 py-2 rounded-full text-sm on-media w-fit">
+                <span class="material-symbols-outlined text-[18px]" aria-hidden="true">local_mall</span>
+                <span>View product</span>
+            </a>
+            <div class="flex items-center gap-2">
+                <a id="storyReplyLink" href="/messages" class="flex-1 bg-white/10 backdrop-blur-md border border-white/20 rounded-full px-5 py-3 on-media text-sm no-underline">Send message</a>
+                <button id="storyLike" onclick="cfLikeStory(this)" class="on-media story-act" aria-label="Like story" aria-pressed="false">
+                    <span class="material-symbols-outlined" aria-hidden="true">favorite</span>
+                    <span id="storyLikes" class="story-act-n"></span>
+                </button>
+                <button id="storyRepost" onclick="cfRepostStory(this)" class="on-media story-act" aria-label="Repost story" aria-pressed="false">
+                    <span class="material-symbols-outlined" aria-hidden="true">repeat</span>
+                </button>
+            </div>
         </div>
     </div>
 </div>
@@ -647,6 +709,14 @@
 {% endblock %}
 
 {% block extra_script %}
+{# The rail's data, then its behaviour, then the page's own script — which is the
+   order the viewer needs: the file reads window.CF_STORIES when a slide opens,
+   and the inline script below defines the helpers the story buttons call. #}
+<script>
+    window.CF_STORIES = {{ story_groups | tojson }};
+    window.CF_VIEWER = {{ (current_user is not none) | tojson }};
+</script>
+<script src="{{ url_for('static', path='js/cartflow-stories.js') }}"></script>
 {# The cart/saved/recently-viewed store (CartFlowStore) is loaded by base.html
    for every page, and this block renders after it — so it is already defined by
    the time the code below runs. This page needs it because the feed's product
@@ -877,28 +947,100 @@ function toggleSave(btn){
     setTimeout(()=>icon.classList.remove('save-anim'), 500);
     showToast(saved ? 'Saved to your collection' : 'Removed from saved');
 }
-function repost(btn){
+/* ---------- repost, PERSISTED ----------
+   This used to toast "Reposted to your profile" for a post nothing recorded. It
+   is now a row in `post_reposts` and a count mirrored on the post, so the button
+   can be un-pressed and the number survives a reload. */
+async function repost(btn){
+    const article = btn.closest('article');
+    const postId = article?.dataset.post;
+    if (!postId) return;
     const icon = btn.querySelector('.material-symbols-outlined');
     icon.classList.add('save-anim');
     setTimeout(()=>icon.classList.remove('save-anim'), 500);
-    showToast('Reposted to your profile');
+    try {
+        const r = await fetch(`/api/posts/${encodeURIComponent(postId)}/repost`, {
+            method: 'POST', credentials: 'same-origin'
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        btn.classList.toggle('reposted', !!data.reposted);
+        btn.setAttribute('aria-pressed', data.reposted ? 'true' : 'false');
+        const line = article.querySelector('.repost-line');
+        const countEl = article.querySelector('.repost-count');
+        if (line) line.classList.toggle('hidden', !data.repost_count);
+        if (countEl) countEl.textContent = Number(data.repost_count).toLocaleString();
+        showToast(data.reposted ? 'Reposted to your profile' : 'Repost removed');
+    } catch (err) {
+        showToast('Could not repost — check your connection.');
+    }
 }
-function toggleComments(btn){
+/* ---------- comments ----------
+   Both directions hit the API. The old version appended a <p> that vanished on
+   refresh and left the count at whatever the seeded string said. */
+async function toggleComments(btn){
     const article = btn.closest('article');
     const block = article ? article.querySelector('.comments-block') : btn.closest('.comments-block');
     const list = block ? block.querySelector('.comments-list') : null;
-    if (list) list.classList.toggle('hidden');
+    if (!list) return;
+    const postId = article?.dataset.post;
+    if (!postId) { list.classList.toggle('hidden'); return; }
+    btn.disabled = true;
+    try {
+        const r = await fetch(`/api/posts/${encodeURIComponent(postId)}/comments`, {credentials: 'same-origin'});
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        list.replaceChildren(...(data.comments || []).map(c => {
+            const p = document.createElement('p');
+            p.className = 'text-sm';
+            const a = document.createElement('a');
+            a.href = '/@' + c.handle; a.className = 'font-semibold hover:underline';
+            a.textContent = c.user;
+            const t = document.createElement('span'); t.className = 'caption-text'; t.textContent = c.text;
+            p.append(a, document.createTextNode(' '), t);
+            return p;
+        }));
+        window.cfParseEmoji && window.cfParseEmoji(list);
+        btn.classList.add('hidden');   /* the list is now the whole thread */
+        list.scrollIntoView({block: 'nearest'});
+    } catch (err) {
+        showToast('Could not load the comments.');
+    } finally {
+        btn.disabled = false;
+    }
 }
-function addComment(input){
-    const list = input.closest('.comments-block').querySelector('.comments-list');
-    list.classList.remove('hidden');
-    const p = document.createElement('p');
-    p.className = 'text-sm animate-floatUp';
-    p.innerHTML = `<span class="font-semibold">You</span> <span class="caption-text"></span>`;
-    p.querySelector('.caption-text').textContent = input.value;   /* textContent = XSS-safe */
-    list.appendChild(p);
-    window.cfParseEmoji && window.cfParseEmoji(p);
+async function cfAddComment(input){
+    const text = (input.value || '').trim();
+    if (!text) return;
+    const article = input.closest('article');
+    const postId = article?.dataset.post;
+    if (!postId) return;
     input.value = '';
+    try {
+        const r = await fetch(`/api/posts/${encodeURIComponent(postId)}/comments`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            credentials: 'same-origin',
+            body: JSON.stringify({body: text})
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        const list = article.querySelector('.comments-list');
+        const p = document.createElement('p');
+        p.className = 'text-sm animate-floatUp';
+        const a = document.createElement('a');
+        a.href = '/@' + data.comment.handle; a.className = 'font-semibold hover:underline';
+        a.textContent = data.comment.user;
+        const t = document.createElement('span'); t.className = 'caption-text'; t.textContent = data.comment.text;
+        p.append(a, document.createTextNode(' '), t);
+        list.append(p);
+        window.cfParseEmoji && window.cfParseEmoji(p);
+        const countEl = article.querySelector('.comment-count');
+        if (countEl) countEl.textContent = Number(data.comment_count).toLocaleString();
+    } catch (err) {
+        input.value = text;
+        showToast('Could not post that comment.');
+    }
 }
 function rsvpEvent(btn){
     btn.textContent = "You're going ✓";
@@ -923,65 +1065,14 @@ function postMenuAction(kind){
     closePostMenu();
 }
 
-/* ===== story viewer — the REAL shops and their own photos =====
-   These five used to be invented brands with picsum.photos images: random
-   pictures that had nothing to do with the shop whose name sat under them, from
-   a host that is not always reachable (the rings rendered as broken images).
-   Now each ring is a seller who has listings, showing one of their actual
-   product photos. There is no stories table yet, so a ring opens that shop's
-   photo — the one thing here that is real. */
-{# Built here rather than reused from the panel above: Jinja blocks get their
-   own scope, so a namespace set inside the content block is not visible in the
-   script block. Same source (the catalogue), rebuilt where it is read. #}
-{% set story_ns = namespace(seen=[], rows=[]) %}
-{% for p in product_map.values() %}
-    {% if p.business and p.business not in story_ns.seen %}
-        {% set _ = story_ns.seen.append(p.business) %}
-        {% set _ = story_ns.rows.append({"name": p.business, "avatar": p.image, "image": p.image, "live": false, "href": "/@" ~ p.handle}) %}
-    {% endif %}
-{% endfor %}
-{% set story_data = story_ns.rows[:5] %}
-const stories = {{ story_data | tojson }};
-const storyRow = document.getElementById('storyRow');
-if (storyRow) {
-    stories.forEach((s, i) => {
-        const el = document.createElement('div');
-        el.className = 'flex flex-col items-center flex-shrink-0 w-[76px]';
-        el.innerHTML = `
-            <div class="story-ring ${s.live ? 'story-live relative' : ''}" role="button" tabindex="0"
-                 aria-label="View ${s.name}'s story" onclick="openStory(${i})" onkeydown="if(event.key==='Enter')openStory(${i})">
-                <img src="${s.image}" alt="" class="w-16 h-16 sm:w-[68px] sm:h-[68px] rounded-full object-cover border-2 border-background">
-                ${s.live ? '<span class="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-red-500 text-[9px] px-2 py-0.5 rounded-full on-media">LIVE</span>' : ''}
-            </div>
-            <span class="text-[11px] mt-1.5 w-full text-center leading-tight break-words line-clamp-2">${s.name}</span>`;
-        storyRow.appendChild(el);
-    });
-}
-
-let currentStory = 0, storyTimer;
-function openStory(i){ currentStory = i; renderStory(); document.getElementById('storyOverlay').classList.add('open'); }
-function renderStory(){
-    const s = stories[currentStory];
-    document.getElementById('storyImage').src = s.image;
-    document.getElementById('storyAvatar').src = s.avatar;
-    document.getElementById('storyName').textContent = s.name;
-    const row = document.getElementById('storyProgressRow');
-    row.innerHTML = stories.map((_, i) => `<div class="h-1 flex-1 rounded-full bg-white/25 overflow-hidden"><div class="h-full bg-white" style="width:${i < currentStory ? '100%' : '0%'}" id="seg${i}"></div></div>`).join('');
-    clearInterval(storyTimer);
-    if (currentStory < stories.length) {
-        let w = 0;
-        const seg = document.getElementById('seg'+currentStory);
-        storyTimer = setInterval(()=>{
-            w += 2;
-            if (seg) seg.style.width = w + '%';
-            if (w >= 100){ clearInterval(storyTimer); nextStory(); }
-        }, 90);
-    }
-}
-function nextStory(){ if (currentStory < stories.length - 1){ currentStory++; renderStory(); } else { closeStory(); } }
-function prevStory(){ if (currentStory > 0){ currentStory--; renderStory(); } }
-function closeStory(){ clearInterval(storyTimer); document.getElementById('storyOverlay').classList.remove('open'); }
-function pulseStoryLike(btn){ btn.querySelector('.material-symbols-outlined').classList.add('like-anim'); setTimeout(()=>btn.querySelector('.material-symbols-outlined').classList.remove('like-anim'),500); }
+/* ===== story viewer =====
+   The data is server-built: one group per account with live slides, newest
+   first, each slide carrying its own like/view/repost state for this viewer
+   (app/services/stories.py). The rail above renders the same list, so a ring
+   and its viewer cannot describe different stories.
+   The behaviour lives in cartflow-stories.js — see its header for why this is a
+   file rather than another 80 lines of inline handlers. */
+const stories = window.CF_STORIES || [];
 
 /* ===== recently viewed =====
    Products opened on /product/{slug} — cartflow-cart.js keeps the slugs, this

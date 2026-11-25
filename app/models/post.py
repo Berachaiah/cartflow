@@ -92,9 +92,12 @@ class Post(Base, UUIDPrimaryKeyMixin, PublicIdMixin, TimestampMixin, SoftDeleteM
     location: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
     like_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    # No comments table yet, so this stays 0 and the card says "0 comments" rather
-    # than inventing a conversation (doc 06 §30 lists it as unbuilt).
+    # Mirrors of the two tables below, for the same reason `like_count` is: the
+    # card prints a number on every post in the feed, and counting rows per post
+    # would be two subqueries per card. `app/services/posts.py` is the only
+    # writer of either.
     comment_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    repost_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default=PostStatus.PUBLISHED.value, index=True
@@ -104,6 +107,57 @@ class Post(Base, UUIDPrimaryKeyMixin, PublicIdMixin, TimestampMixin, SoftDeleteM
 
     def __repr__(self) -> str:
         return f"<Post {self.public_id} by {self.author_id}>"
+
+
+class PostComment(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
+    """One comment on one post.
+
+    Shaped like a chat message rather than a threaded forum: V1 has no replies
+    to replies, so a `parent_comment_id` would be a column nothing writes. The
+    feed shows the newest two as a preview and the card expands to the rest —
+    which is why the index is (post_id, created_at): both reads are "the newest
+    comments on this post".
+
+    `author` is joined eagerly because every render prints the name and photo;
+    a lazy load outside the request's greenlet raises MissingGreenlet under
+    async SQLAlchemy, the same reason `Post.author` is joined.
+    """
+
+    __tablename__ = "post_comments"
+    __table_args__ = (Index("ix_post_comments_post_created", "post_id", "created_at"),)
+
+    post_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("posts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    author_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+
+    author: Mapped["User"] = relationship(lazy="joined")  # noqa: F821
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"<PostComment on {self.post_id}>"
+
+
+class PostRepost(Base, TimestampMixin):
+    """One repost per (post, user), like PostLike: the composite PK is the rule,
+    so a double-tap cannot inflate the count and un-reposting is a delete.
+
+    Reposts are recorded rather than copied (unlike stories): a feed post is
+    addressed by its own id, so "Ada reposted this" is a fact about the same
+    post, and duplicating the row would split its likes and comments in two.
+    """
+
+    __tablename__ = "post_reposts"
+    __table_args__ = (UniqueConstraint("post_id", "user_id", name="uq_post_reposts_post_user"),)
+
+    post_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("posts.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
 
 
 class PostLike(Base, TimestampMixin):
