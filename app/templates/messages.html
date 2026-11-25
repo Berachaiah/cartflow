@@ -64,6 +64,15 @@
           </button>
         </div>
         <div class="cm-tray" id="cm-tray" hidden><img id="cm-trayimg" alt=""><div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14px">1 photo</div><div class="cm-sub" id="cm-traysz"></div></div><button class="cm-ib sm" id="cm-trayx" type="button" aria-label="Remove photo"><span class="material-symbols-outlined" aria-hidden="true">close</span></button></div>
+        {# Quick replies. The chips fill the composer instead of sending: a
+           canned line you cannot edit is not a reply, and tapping one by
+           accident should never put words in your mouth. #}
+        <div class="cm-qr" id="cm-qr" aria-label="Quick replies">
+          <button type="button" class="cm-qrc" data-qr="On my way!"><span aria-hidden="true">🏃</span> On my way!</button>
+          <button type="button" class="cm-qrc" data-qr="Is this still available?"><span aria-hidden="true">❓</span> Still available?</button>
+          <button type="button" class="cm-qrc" data-qr="Can we meet on campus?"><span aria-hidden="true">📍</span> Meet on campus?</button>
+          <button type="button" class="cm-qrc" data-qr="Looks amazing! 🔥"><span aria-hidden="true">🔥</span> Looks amazing!</button>
+        </div>
         <form class="cm-comp" id="cm-form">
           <button class="cm-ib p" id="cm-cam" type="button" aria-label="Camera"><span class="material-symbols-outlined" aria-hidden="true">photo_camera</span></button>
           <div class="cm-in">

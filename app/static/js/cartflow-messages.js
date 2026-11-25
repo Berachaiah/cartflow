@@ -7,7 +7,10 @@
   const WPS = [['default','Default'],['dots','Dots'],['grid','Grid'],['lines','Lines'],['sky','Sky'],['mint','Mint'],['peach','Peach'],['lilac','Lilac']];
   const RATIOS = [['9:16', 9 / 16, 'Phone 9:16'], ['3:4', 3 / 4, 'Tall 3:4'], ['1:1', 1, 'Square 1:1'], ['16:9', 16 / 9, 'Wide 16:9']];
   const EMOJI = '😀 😂 😊 😍 🥰 😘 😎 🤩 🥳 😅 🤣 🙂 😉 😇 🤔 😮 😢 😭 😡 😴 🙏 👍 👎 👏 🙌 💪 🤝 👋 ❤️ 🔥 ✨ 🎉 💯 ✅ ❌ 👀 🎁 🛍️ 📦 💸 🏠 🎓 📚 ☕ 🍕 🚗 📍'.split(' ');
-  let inbox = {items: [], unread_conversations: 0, pending_requests: 0}, tab = 'all', q = '', active = null, thread = null;
+  // `archived` is fetched separately, on demand: the inbox endpoint excludes
+  // archived threads from every other tab by design, so the Archived tab cannot
+  // be filtered out of `inbox.items` the way All/Unread/Requests are.
+  let inbox = {items: [], unread_conversations: 0, pending_requests: 0}, archived = [], tab = 'all', q = '', active = null, thread = null;
   let online = new Set(), typingUntil = 0, lastTyping = 0, ws = null, pending = null, infoOpen = false, infoTab = 'media';
   let pins = {list: [], ids: new Set(), max: 5};
   let deal = {product: null};
@@ -38,8 +41,26 @@
   }
   let toastT; function toast(msg) { document.querySelectorAll('.cm-toast').forEach(e => e.remove()); const t = h('div', 'cm-toast', msg); document.body.append(t); clearTimeout(toastT); toastT = setTimeout(() => t.remove(), 2800); }
   function avatar(u, size) {
-    const a = h('div', 'cm-av'); a.style.cssText = `width:${size}px;height:${size}px;font-size:${Math.round(size * .36)}px`;
-    const p = picOf(u); if (p) { const i = h('img'); i.src = p; i.alt = ''; a.append(i); } else a.append((nameOf(u)[0] || '?').toUpperCase());
+    // The default picture is the SAME silhouette the server draws
+    // (partials/avatar.html clones #cf-avatar) instead of a letter on a coloured
+    // disc. A monogram in a chat list reads as a label rather than "no photo",
+    // and two accounts whose names start with the same letter look identical.
+    const a = h('div', 'cm-av'); a.style.cssText = `width:${size}px;height:${size}px`;
+    const p = picOf(u);
+    if (p) { const i = h('img'); i.src = p; i.alt = ''; a.append(i); }
+    else {
+      const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      s.setAttribute('viewBox', '0 0 96 96'); s.style.cssText = 'width:100%;height:100%;display:block';
+      const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+      use.setAttribute('href', '#cf-avatar'); s.append(use); a.append(s);
+    }
+    // base.html's preview modal reads these. Tapping the picture opens the
+    // preview; the row underneath still opens the thread.
+    a.dataset.avatarName = nameOf(u);
+    a.dataset.avatarUser = u.username || '';
+    a.setAttribute('role', 'button'); a.setAttribute('tabindex', '0');
+    a.setAttribute('aria-label', 'View ' + nameOf(u) + "'s picture");
+    a.onclick = e => { e.preventDefault(); e.stopPropagation(); openAvatarPreview(a); };
     if (online.has(u.username)) a.append(h('i')); return a;
   }
   function lightbox(src) { const l = h('div', 'cm-lb'); const i = h('img'); i.src = src; i.alt = 'Photo'; l.append(i); l.onclick = () => l.remove(); document.body.append(l); }
@@ -151,11 +172,20 @@
     };
     // Order is least-destructive first, so a thumb aiming at "Archive" cannot
     // land on "Delete" because the list moved.
-    item('archive', 'Archive chat', '', () => rowAction(async () => {
-      await api(`/api/messages/${c.public_id}/archive`, 'POST');
-      if (active === c.other.username) closeThread();
-      loadInbox(); toast('Archived — it comes back if they write');
-    }));
+    // Archived rows offer the inverse first: without it, "Archive" was a one-way
+    // door unless the other person happened to write again.
+    if (tab === 'archived') {
+      item('unarchive', 'Move to inbox', '', () => rowAction(async () => {
+        await api(`/api/messages/${c.public_id}/unarchive`, 'POST');
+        await loadArchived(); renderRows(); toast('Moved back to your inbox');
+      }));
+    } else {
+      item('archive', 'Archive chat', '', () => rowAction(async () => {
+        await api(`/api/messages/${c.public_id}/archive`, 'POST');
+        if (active === c.other.username) closeThread();
+        loadInbox(); toast('Archived — find it in the Archived tab');
+      }));
+    }
     item('block', `Block @${c.other.username}`, 'red', () => rowAction(async () => {
       if (!confirm(`Block @${c.other.username}? You won't see each other's messages.`)) return;
       await api('/api/messages/blocks/' + enc(c.other.username), 'POST');
@@ -183,18 +213,27 @@
 
   /* ---------- inbox ---------- */
   async function loadInbox() {
-    try { inbox = await api('/api/messages'); renderTabs(); renderRows(); }
+    try { inbox = await api('/api/messages'); if (tab === 'archived') await loadArchived(); renderTabs(); renderRows(); }
     catch (e) { rowsEl.replaceChildren(h('div', 'cm-err', `Couldn't load conversations (${e.status || 'network'}): ${e.message}`)); }
   }
+  async function loadArchived() {
+    try { const d = await api('/api/messages?filter=archived'); archived = d.items || []; }
+    catch (e) { archived = []; toast("Couldn't load archived chats: " + e.message); }
+  }
   function renderTabs() {
-    $('cm-tabs').replaceChildren(...[['all', 'All', 0], ['unread', 'Unread', inbox.unread_conversations], ['requests', 'Requests', inbox.pending_requests]].map(([k, l, n]) => {
-      const b = btn('cm-tab' + (tab === k ? ' on' : '')); b.append(h('span', '', l)); if (n) b.append(h('span', 'cm-n', n)); b.onclick = () => { tab = k; renderTabs(); renderRows(); }; return b;
+    $('cm-tabs').replaceChildren(...[['all', 'All', 0], ['unread', 'Unread', inbox.unread_conversations], ['requests', 'Requests', inbox.pending_requests], ['archived', 'Archived', 0]].map(([k, l, n]) => {
+      const b = btn('cm-tab' + (tab === k ? ' on' : '')); b.append(h('span', '', l)); if (n) b.append(h('span', 'cm-n', n)); b.onclick = async () => {
+        tab = k; renderTabs();
+        if (k === 'archived') { rowsEl.replaceChildren(h('div', 'cm-empty', 'Loading…')); await loadArchived(); }
+        renderRows();
+      }; return b;
     }));
   }
   function renderRows() {
     const s = q.toLowerCase();
-    const items = (inbox.items || []).filter(c => (tab === 'all' || (tab === 'unread' && c.unread > 0) || (tab === 'requests' && c.is_request)) && (!s || (nameOf(c.other) + ' ' + c.other.username + ' ' + (c.preview || '')).toLowerCase().includes(s)));
-    if (!items.length) { rowsEl.replaceChildren(h('div', 'cm-empty', s ? 'No matches' : tab === 'all' ? 'No conversations yet. Tap the pencil to start one.' : 'Nothing here')); return; }
+    const source = tab === 'archived' ? archived : (inbox.items || []);
+    const items = source.filter(c => (tab === 'all' || tab === 'archived' || (tab === 'unread' && c.unread > 0) || (tab === 'requests' && c.is_request)) && (!s || (nameOf(c.other) + ' ' + c.other.username + ' ' + (c.preview || '')).toLowerCase().includes(s)));
+    if (!items.length) { rowsEl.replaceChildren(h('div', 'cm-empty', s ? 'No matches' : tab === 'all' ? 'No conversations yet. Tap the pencil to start one.' : tab === 'archived' ? 'Nothing archived. Use ⋮ → Archive chat to tidy the list.' : 'Nothing here')); return; }
     rowsEl.replaceChildren(...items.map(c => {
       // A wrapper, not a row with a button inside it: a <button> nested in a
       // <button> is invalid HTML and browsers flatten it, so the ⋮ would stop
@@ -292,6 +331,18 @@
   $('cm-downbtn').onclick = () => msgsEl.scrollTo({top: msgsEl.scrollHeight, behavior: 'smooth'});
   function closeThread() { active = null; thread = null; deal = {product: null}; renderBar(); infoOpen = false; info.hidden = true; closeMenu(); root.classList.remove('open'); $('cm-view').hidden = true; $('cm-blank').hidden = false; history.replaceState(null, '', '/messages'); renderRows(); }
   $('cm-back').onclick = closeThread;
+
+  /* Quick-reply chips above the composer. They FILL the field rather than send
+     — see the note in messages.html — so the chips stay a typing shortcut and
+     never put words in someone's mouth by accident. */
+  document.querySelectorAll('#cm-qr [data-qr]').forEach(c => {
+    c.onclick = () => {
+      input.value = c.dataset.qr;
+      input.dispatchEvent(new Event('input', {bubbles: true}));
+      input.focus();
+      try { input.setSelectionRange(input.value.length, input.value.length); } catch {}
+    };
+  });
 
   /* ---------- search in chat ---------- */
   function openSearch() { search.on = true; $('cm-sbar').hidden = false; $('cm-sq').focus(); }

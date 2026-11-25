@@ -327,3 +327,36 @@
 .cm-rwrap{padding-right:38px}
 .cm-rm{padding-right:0}
 .cm-more{right:2px}
+
+/* ------------------------------------------------------------------
+   Conversation finish: the warm-bubble treatment from the reference
+   screens, in CartFlow's own palette.
+
+   The gradient is derived from `--pri` with color-mix rather than hard-coded
+   coral, so a light/dark theme switch (or a future brand colour) moves both
+   ends together. Incoming bubbles go translucent so the wallpaper behind the
+   thread reads through them; the reaction pill lifts onto the bubble's edge
+   the way it does in the reference, which is what makes a reply readable at a
+   glance without opening the message menu.
+------------------------------------------------------------------ */
+.cm-m.me .cm-b{background:linear-gradient(135deg,color-mix(in srgb,var(--pri) 76%,#fff) 0%,var(--pri) 100%);box-shadow:0 6px 18px color-mix(in srgb,var(--pri) 22%,transparent)}
+.cm-m.th .cm-b{background:color-mix(in srgb,var(--sur) 82%,transparent);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
+.cm-rx{position:relative;z-index:1;margin-top:-11px;padding:0 10px}
+.cm-rxc{height:24px;border-width:2px;border-color:var(--card);box-shadow:0 1px 4px rgba(0,0,0,.14)}
+.cm-rxc.mine{border-color:var(--pri)}
+/* Online dot gets the halo ring the reference uses on conversation avatars. */
+.cm-av:has(> i){box-shadow:0 0 0 2px var(--card),0 0 0 3.5px color-mix(in srgb,var(--pri) 62%,#fff)}
+
+/* Quick replies: a scrolling chip row directly above the composer. */
+.cm-qr{display:flex;gap:8px;padding:8px 14px 0;overflow-x:auto;scrollbar-width:none}
+.cm-qr::-webkit-scrollbar{display:none}
+.cm-qrc{flex:none;height:34px;padding:0 14px;border-radius:999px;font-size:13px;font-weight:600;white-space:nowrap;
+  background:color-mix(in srgb,var(--pri) 13%,transparent);
+  border:1px solid color-mix(in srgb,var(--pri) 28%,transparent);color:inherit}
+.cm-qrc:active{transform:scale(.97)}
+
+/* Composer: pill field that lights up on focus, gradient mic/send. */
+.cm-comp{padding-top:8px}
+.cm-in{border-radius:26px;background:color-mix(in srgb,currentColor 7%,transparent);transition:box-shadow .18s ease,background-color .18s ease}
+.cm-in:focus-within{background:var(--sur);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--pri) 55%,transparent)}
+#cm-act{background:linear-gradient(140deg,color-mix(in srgb,var(--pri) 80%,#fff),var(--pri));box-shadow:0 6px 18px color-mix(in srgb,var(--pri) 32%,transparent)}

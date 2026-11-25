@@ -1,7 +1,10 @@
 """
 Messaging endpoints — the inbox, a thread, a send, and the per-thread controls.
 
-    GET    /api/messages                            inbox (?filter=all|unread|requests, ?q=)
+    GET    /api/messages                            inbox (?filter=all|unread|requests|archived, ?q=)
+                                                    — `archived` is the one tab the inbox query
+                                                    cannot be filtered out of `items` for, so it
+                                                    is its own branch in the service
     GET    /api/messages/unread                     the nav badge count
     GET    /api/messages/candidates                 the compose picker
     GET    /api/messages/threads/{username}         one thread (?before=, ?limit=)
@@ -494,6 +497,30 @@ async def archive_conversation(
     )
     return ConversationStateResponse(
         public_id=conversation.public_id, status=conversation.status, archived=True
+    )
+
+
+@router.post("/{public_id}/unarchive", response_model=ConversationStateResponse)
+async def unarchive_conversation(
+    public_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Put an archived thread back in the inbox — see the Archived tab."""
+    conversation = await messaging_service.unarchive_conversation(
+        db, viewer=current_user, public_id=public_id
+    )
+    await realtime.publish(
+        {current_user.id},
+        {
+            "type": "conversation_state",
+            "conversation": str(public_id),
+            "status": conversation.status,
+            "archived": False,
+        },
+    )
+    return ConversationStateResponse(
+        public_id=conversation.public_id, status=conversation.status, archived=False
     )
 
 

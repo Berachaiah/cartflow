@@ -242,6 +242,7 @@ class ConversationRepository(BaseRepository[Conversation]):
         unread_only: bool = False,
         requests_only: bool = False,
         accepted_only: bool = False,
+        archived_only: bool = False,
         query: str | None = None,
         hidden_statuses: Sequence[str] = (),
         limit: int = 50,
@@ -284,7 +285,16 @@ class ConversationRepository(BaseRepository[Conversation]):
                 ),
             )
             .join(User, User.id == theirs.user_id)
-            .where(mine.archived_at.is_(None))
+            # Archived is the one tab that WANTS the rows every other tab hides:
+            # a thread someone archived still exists on their side of the pair,
+            # and until now there was no way to reach it again after the new
+            # message that would have brought it back — so "Archive" was one
+            # tap away from deleting. `archived_only` is that reversal.
+            .where(
+                mine.archived_at.is_not(None)
+                if archived_only
+                else mine.archived_at.is_(None)
+            )
             .where(User.deleted_at.is_(None))
             .where(_not_blocked_clause(user_id, theirs.user_id))
         )

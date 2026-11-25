@@ -330,6 +330,7 @@ async def get_inbox(
         viewer.id,
         unread_only=filter_name == "unread",
         requests_only=filter_name == "requests",
+        archived_only=filter_name == "archived",
         query=query,
         hidden_statuses=hidden,
         # One more than asked for, to learn whether there is a next page without
@@ -901,6 +902,25 @@ async def archive_conversation(
         db, viewer=viewer, public_id=public_id
     )
     participant.archived_at = utc_now()
+    await db.flush()
+    return conversation
+
+
+async def unarchive_conversation(
+    db: AsyncSession, *, viewer: User, public_id: uuid.UUID
+) -> Conversation:
+    """Put an archived thread back in the inbox.
+
+    The exact inverse of `archive_conversation`, and needed for the same reason:
+    archiving used to be a one-way door in the UI (the thread only came back if
+    the other person wrote), which made a tidy-up gesture feel like losing a
+    conversation. The Archived tab is where those rows live, and this is how a
+    row leaves it.
+    """
+    conversation, participant = await require_participant(
+        db, viewer=viewer, public_id=public_id
+    )
+    participant.archived_at = None
     await db.flush()
     return conversation
 
