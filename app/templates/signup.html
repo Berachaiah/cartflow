@@ -61,9 +61,9 @@
     </button>
   </div>
 
-  {% if google_oauth and not finish_google %}
+  {% if google_signin_enabled and not finish_google %}
   <div class="or-divider">or</div>
-  {{ ui.google_button(label="Sign up with Google") }}
+  {{ ui.google_button(label="Sign up with Google", intent="signup") }}
   {% endif %}
 
   <p class="auth-alt">Already have an account? <a href="/login">Log in</a></p>

@@ -101,6 +101,16 @@ templates.env.globals["avatar_src"] = lambda user, size="sm": avatar_service.ava
 # settings and never reach a template.
 templates.env.globals["media_enabled"] = settings.media_enabled
 
+# Google sign-in state, as globals rather than per-route context. The button is
+# rendered from one macro that every auth screen imports, and a macro cannot see
+# a route's context — only the environment's globals. Putting these here means
+# no page can forget the flag and draw a dead button, and the PUBLIC Firebase
+# config (apiKey/authDomain/projectId/appId — the values Firebase's own console
+# tells you to embed) travels with the button that needs it.
+templates.env.globals["google_oauth_enabled"] = settings.google_oauth_enabled
+templates.env.globals["google_signin_enabled"] = settings.google_signin_enabled
+templates.env.globals["firebase_public_config"] = settings.firebase_public_config
+
 # How a price reads, in one function. The `money()` macro in partials/ui.html
 # calls this, and `catalog.browse_index()` uses it to pre-format the prices it
 # hands to the browser — so a price rendered by Jinja and the same price printed
@@ -157,6 +167,43 @@ async def home(
             # instead of a button that answers 503.
             media_enabled=settings.media_enabled,
             **(await catalog.catalog_context(db)),
+        ),
+    )
+
+
+@router.get("/welcome", response_class=HTMLResponse)
+async def welcome(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    """The signed-out landing page.
+
+    Deliberately NOT `/`: that route is the feed, and the feed stays readable
+    without an account (a visitor can look at a story or a listing before
+    signing up — see the read-open note in app/routers/stories.py). This page's
+    job is the explanation `/` cannot give: what CartFlow is, and where to start.
+
+    Every number and card on it is read from the database — the listing count,
+    the category count and the four featured products. A marketing page that
+    quotes invented figures ages into a lie the moment the catalogue changes.
+
+    Signed-in visitors are not redirected anywhere: `/welcome` is also the
+    natural "about" link, and a session should not make a page 404."""
+    products = await catalog.list_products(db, limit=200)
+    return templates.TemplateResponse(
+        request=request,
+        name="landing.html",
+        context=_page_ctx(
+            user,
+            page_title="Campus marketplace",
+            active_nav=None,
+            bare=True,
+            featured=products[:4],
+            stats={
+                "listings": len(products),
+                "categories": len({p["category"] for p in products}),
+            },
         ),
     )
 

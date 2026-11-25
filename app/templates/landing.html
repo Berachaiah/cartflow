@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% from "partials/theme_switch.html" import theme_switch %}
+
+{#
+  The signed-out landing page (/welcome).
+
+  WHY IT IS NOT `/`. `/` is the feed, and it stays public on purpose: a visitor
+  with no account can look at a campus story or a listing without signing up
+  (see app/routers/stories.py on why reads are open). That is a good product,
+  but it is a bad first screen — it assumes you already know what CartFlow is.
+  This page is the explanation, and every link on it goes somewhere real: the
+  live catalogue, the live story rail, the signup form. Nothing here invents a
+  number; the stats and the product cards come out of the database.
+
+  Motion is in cartflow-landing.css and cartflow-landing.js: transforms and
+  opacity only, everything reveal-on-scroll, and all of it switched off under
+  `prefers-reduced-motion`. No animation library, no per-frame JavaScript.
+#}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', path='css/cartflow-landing.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="lp">
+
+  <!-- ================= NAV ================= -->
+  <header class="lp-nav" id="lpNav">
+    <div class="lp-wrap lp-nav-inner">
+      <a href="/" class="lp-brand" aria-label="CartFlow home">
+        <img src="{{ url_for('static', path='images/logo-icon.png') }}" alt="" width="34" height="34">
+        <span>CartFlow</span>
+      </a>
+
+      <nav class="lp-nav-links" aria-label="Primary">
+        <a href="/marketplace">Marketplace</a>
+        <a href="/discover">Discover</a>
+        <a href="/universities">Campuses</a>
+      </nav>
+
+      <div class="lp-nav-actions">
+        {# Appearance, in the nav where every marketing page keeps it. The same
+           three-segment control as Settings and the auth screens — System first,
+           because that is the default when nobody has chosen, then Light, Dark.
+           It is the shared partial, so the icons, labels and aria state cannot
+           drift from the rest of the app. #}
+        {{ theme_switch('lp-theme') }}
+        {% if current_user %}
+          <a href="/" class="lp-btn lp-btn-primary lp-btn-sm">Open app</a>
+        {% else %}
+          <a href="/login" class="lp-btn lp-btn-ghost lp-btn-sm lp-login">Log in</a>
+          <a href="/signup" class="lp-btn lp-btn-primary lp-btn-sm">Get started</a>
+        {% endif %}
+      </div>
+    </div>
+  </header>
+
+  <!-- ================= HERO ================= -->
+  <section class="lp-hero">
+    <div class="lp-wrap lp-hero-grid">
+      <div class="lp-hero-copy">
+        <p class="lp-eyebrow lp-reveal">
+          <span class="lp-dot" aria-hidden="true"></span>
+          Campus marketplace &amp; feed
+        </p>
+
+        <h1 class="lp-h1 lp-reveal">
+          Everything your campus<br>
+          is selling, <em>in one feed.</em>
+        </h1>
+
+        <p class="lp-lede lp-reveal">
+          Shop from students and brands on your campus, follow the shops you like,
+          and post your own drops. One account, one app — no group-chat screenshots
+          and no “is this still available?”.
+        </p>
+
+        <div class="lp-cta-row lp-reveal">
+          <a href="/signup" class="lp-btn lp-btn-primary">
+            Create your account
+            <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
+          </a>
+          <a href="/marketplace" class="lp-btn lp-btn-ghost">Browse the shop</a>
+        </div>
+
+        <dl class="lp-stats lp-reveal">
+          <div>
+            <dt>Listings live now</dt>
+            <dd>{{ stats.listings }}</dd>
+          </div>
+          <div>
+            <dt>Categories</dt>
+            <dd>{{ stats.categories }}</dd>
+          </div>
+          <div>
+            <dt>Cost to join</dt>
+            <dd>Free</dd>
+          </div>
+        </dl>
+      </div>
+
+      <div class="lp-hero-art lp-reveal" aria-hidden="true">
+        {% for product in featured %}
+        <a class="lp-float lp-float-{{ loop.index }}" href="/product/{{ product.slug }}" tabindex="-1">
+          <img src="{{ product.image_url }}" alt="" loading="{{ 'eager' if loop.first else 'lazy' }}">
+          <span class="lp-float-meta">
+            <span class="lp-float-name">{{ product.name }}</span>
+            <span class="lp-float-price">{{ naira(product.price) }}</span>
+          </span>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= PILLARS ================= -->
+  <section class="lp-section lp-wrap" id="how">
+    <header class="lp-section-head lp-reveal">
+      <p class="lp-kicker">Why it works</p>
+      <h2 class="lp-h2">Built for how campus actually buys and sells</h2>
+    </header>
+
+    <div class="lp-cards">
+      <article class="lp-card lp-reveal">
+        <span class="lp-ic lp-ic-brand"><span class="material-symbols-outlined" aria-hidden="true">storefront</span></span>
+        <h3>A shop, not a spreadsheet</h3>
+        <p>Prices, stock and pickup points live on the listing. The same numbers show
+           in the feed, the shop and the product page — so a tag can never quote a
+           price the shop doesn’t have.</p>
+      </article>
+
+      <article class="lp-card lp-reveal">
+        <span class="lp-ic lp-ic-accent"><span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span></span>
+        <h3>Stories and posts that link to the product</h3>
+        <p>A drop is a photo with the item tagged. Tap the tag and you are on the
+           listing. No DM to ask what it costs, no screenshot hunting in three chats.</p>
+      </article>
+
+      <article class="lp-card lp-reveal">
+        <span class="lp-ic lp-ic-success"><span class="material-symbols-outlined" aria-hidden="true">payments</span></span>
+        <h3>Pay, then collect or get it delivered</h3>
+        <p>Checkout is in the app, with pickup at a place the seller set and delivery
+           areas they actually cover.</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- ================= STEPS ================= -->
+  <section class="lp-section lp-wrap lp-steps">
+    <header class="lp-section-head lp-reveal">
+      <p class="lp-kicker">Three taps in</p>
+      <h2 class="lp-h2">From opening the app to your first order</h2>
+    </header>
+
+    <ol class="lp-step-list">
+      <li class="lp-reveal">
+        <span class="lp-step-n">01</span>
+        <h3>Pick how you use it</h3>
+        <p>Student, individual, student business or brand. The form only asks for
+           what that choice needs — no school question for a brand.</p>
+      </li>
+      <li class="lp-reveal">
+        <span class="lp-step-n">02</span>
+        <h3>Follow your campus</h3>
+        <p>The feed fills with the shops you follow and the stories they post. Your
+           school is used to show local listings first.</p>
+      </li>
+      <li class="lp-reveal">
+        <span class="lp-step-n">03</span>
+        <h3>Buy or start selling</h3>
+        <p>Checkout from any listing, or open your own shop from the Business Hub
+           in a couple of minutes.</p>
+      </li>
+    </ol>
+  </section>
+
+  <!-- ================= PRODUCT RAIL ================= -->
+  {% if featured %}
+  <section class="lp-section lp-wrap">
+    <header class="lp-section-head lp-section-head-row lp-reveal">
+      <div>
+        <p class="lp-kicker">Straight from the shops</p>
+        <h2 class="lp-h2">Live on the marketplace</h2>
+      </div>
+      <a href="/marketplace" class="lp-link">
+        See everything
+        <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
+      </a>
+    </header>
+
+    <div class="lp-rail">
+      {% for product in featured %}
+      <a class="lp-tile lp-reveal" href="/product/{{ product.slug }}">
+        <span class="lp-tile-media">
+          <img src="{{ product.image_url }}" alt="{{ product.image_alt }}" loading="lazy">
+        </span>
+        <span class="lp-tile-body">
+          <span class="lp-tile-name">{{ product.name }}</span>
+          <span class="lp-tile-price">{{ naira(product.price) }}</span>
+        </span>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- ================= CLOSING CTA ================= -->
+  <section class="lp-wrap">
+    <div class="lp-band lp-reveal">
+      <div>
+        <h2 class="lp-h2">Your campus is already on it.</h2>
+        <p class="lp-band-sub">Open an account and see what is live near you today.</p>
+      </div>
+      <div class="lp-band-actions">
+        <a href="/signup" class="lp-btn lp-btn-primary">Create account</a>
+        <a href="/login" class="lp-btn lp-btn-ghost">I already have one</a>
+      </div>
+    </div>
+  </section>
+
+  <footer class="lp-foot lp-wrap">
+    <div class="lp-foot-brand">
+      <img src="{{ url_for('static', path='images/logo-icon.png') }}" alt="" width="28" height="28">
+      <span>CartFlow</span>
+    </div>
+    <nav class="lp-foot-links" aria-label="Footer">
+      <a href="/marketplace">Marketplace</a>
+      <a href="/discover">Discover</a>
+      <a href="/universities">Campuses</a>
+      <a href="/login">Log in</a>
+      <a href="/signup">Sign up</a>
+    </nav>
+    <p class="lp-foot-note">&copy; CartFlow — campus marketplace and feed.</p>
+  </footer>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+<script src="{{ url_for('static', path='js/cartflow-landing.js') }}" defer></script>
+{% endblock %}

@@ -14,12 +14,18 @@
  * Bump VERSION to retire a cache. The activate handler deletes every cache that
  * does not match, so old assets cannot accumulate across deploys.
  */
-const VERSION = 'cartflow-v1';
+const VERSION = 'cartflow-v2';
 
 const PRECACHE = [
   '/static/css/tailwind.css',
   '/static/css/cartflow-ui.css',
   '/static/css/fonts.css',
+  // The landing page's own stylesheet and script. Cached with the rest of the
+  // shell so /welcome — the first screen an installed app may open, via the
+  // manifest's start URL — paints from cache on a cold, offline launch. The
+  // Google sign-in script is NOT precached: it is only fetched on a tap.
+  '/static/css/cartflow-landing.css',
+  '/static/js/cartflow-landing.js',
   '/static/images/favicon-192.png',
   '/static/images/favicon.png',
   '/static/images/logo-icon.png',

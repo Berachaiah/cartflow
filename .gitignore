@@ -79,3 +79,6 @@ docs/screenshots/
 mlruns/
 mlflow.db
 ml/artifacts/
+
+# Local run logs (dev server, test runs)
+*.log

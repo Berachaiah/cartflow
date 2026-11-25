@@ -38,9 +38,9 @@
   </button>
 </form>
 
-{% if google_oauth %}
+{% if google_signin_enabled %}
 <div class="or-divider">or</div>
-{{ ui.google_button() }}
+{{ ui.google_button(intent="login") }}
 {% endif %}
 
 <p class="auth-alt">New to CartFlow?
@@ -65,23 +65,11 @@
 
   bindPasswordToggle('password');
 
-  /* ============ GOOGLE LOGIN ============
-     Present only when OAuth is configured (see pages.py). intent=login so the
-     callback lands a returning Google user in a session and sends a brand-new
-     Google user to the finish-signup step.
-
-     Note this path ignores NEXT_URL: the post-login redirect happens server-side
-     in the OAuth callback, so carrying a destination through would mean signing
-     it into the `state` token. Not worth it — a Google user who was bounced from
-     /settings lands on /discover and taps through, rather than us adding another
-     attacker-controllable field to the state we verify. */
-  const googleBtn = document.getElementById('googleBtn');
-  if (googleBtn) {
-    googleBtn.addEventListener('click', () => {
-      setLoading(googleBtn, true);
-      window.location.assign('/api/auth/google/login?intent=login');
-    });
-  }
+  /* Google sign-in is wired in cartflow-google.js, shared with /signup: it
+     picks the Firebase popup when that is configured and falls back to the
+     server-side redirect otherwise. It deliberately ignores NEXT_URL, for the
+     same reason the OAuth state carries nothing attacker-controllable — a
+     Google user bounced from /settings lands on /discover and taps through. */
 
   function showAlert(msg) {
     alertEl.textContent = msg;

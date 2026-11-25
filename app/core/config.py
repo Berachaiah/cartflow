@@ -183,6 +183,23 @@ class Settings(BaseSettings):
     # dev works with no extra config; set it explicitly in production.
     GOOGLE_REDIRECT_URI: str | None = None
 
+    # --- Firebase Google sign-in ----------------------------------------
+    # An alternative front door to the SAME Google identity: the browser signs
+    # in with the Firebase JS SDK (a popup) and posts the resulting ID token to
+    # /api/auth/firebase, which verifies it against Google's published signing
+    # keys. It exists because Firebase is what the mobile/web clients are set up
+    # with; the redirect flow above stays as the fallback for a browser that
+    # blocks the popup.
+    #
+    # These four are PUBLIC identifiers — they are rendered into the page so the
+    # SDK can start. The secret half of the credential stays in Google's console
+    # and never reaches this app, which is why there is no FIREBASE_PRIVATE_KEY
+    # here: ID tokens are verified with published keys, not a shared secret.
+    FIREBASE_API_KEY: str | None = None
+    FIREBASE_AUTH_DOMAIN: str | None = None
+    FIREBASE_PROJECT_ID: str | None = None
+    FIREBASE_APP_ID: str | None = None
+
     # --- Observability ----------------------------------------------
     SENTRY_DSN: str | None = None
 
@@ -231,6 +248,41 @@ class Settings(BaseSettings):
         the button in templates and the OAuth routes — a half-configured
         install shows no dead button and returns 404 rather than erroring."""
         return bool(self.GOOGLE_CLIENT_ID and self.GOOGLE_CLIENT_SECRET)
+
+    @property
+    def firebase_enabled(self) -> bool:
+        """Firebase sign-in needs all four public identifiers. Partial config is
+        treated as absent rather than half-initialising the SDK in the browser,
+        where the failure would be a console error nobody reads."""
+        return bool(
+            self.FIREBASE_API_KEY
+            and self.FIREBASE_AUTH_DOMAIN
+            and self.FIREBASE_PROJECT_ID
+            and self.FIREBASE_APP_ID
+        )
+
+    @property
+    def firebase_public_config(self) -> dict[str, str] | None:
+        """Exactly the keys `initializeApp()` takes, and nothing else. Returned
+        as a dict so the template can `| tojson` it into a data attribute — the
+        browser needs these values and they are not secret, but they still go
+        through one place instead of four scattered template variables."""
+        if not self.firebase_enabled:
+            return None
+        return {
+            "apiKey": self.FIREBASE_API_KEY,
+            "authDomain": self.FIREBASE_AUTH_DOMAIN,
+            "projectId": self.FIREBASE_PROJECT_ID,
+            "appId": self.FIREBASE_APP_ID,
+        }
+
+    @property
+    def google_signin_enabled(self) -> bool:
+        """Is there ANY working Google path? The auth pages use this to decide
+        whether the button is live: Firebase first (the client the product ships),
+        then the server-side redirect flow. Both are off => the button renders
+        disabled with a note instead of a control that silently does nothing."""
+        return self.firebase_enabled or self.google_oauth_enabled
 
     @property
     def google_redirect_uri(self) -> str:

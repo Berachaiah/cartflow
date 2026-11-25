@@ -6,12 +6,13 @@ Section 9 (Email Verification, Steps 3-6).
 """
 
 from fastapi import APIRouter, Depends, Query, Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.deps import get_current_user
-from app.core.exceptions import ConflictError, RateLimitedError
+from app.core.exceptions import ConflictError, RateLimitedError, UnauthorizedError
 from app.database.session import get_db
 from app.models.user import User
 from app.repositories.user import UserRepository
@@ -37,7 +38,7 @@ from app.schemas.user import (
     UserOut,
     validate_username_value,
 )
-from app.services import google_oauth
+from app.services import firebase_auth, google_oauth
 from app.services.account import set_graduation, upgrade_to_business
 from app.services.auth import find_user_for_google, signup as signup_service, signup_student
 from app.services.email_verification import (
@@ -208,6 +209,71 @@ async def login_endpoint(
     _set_session_cookie(response, raw_token, remember=payload.remember)
 
     return {"user": UserOut.model_validate(user)}
+
+
+# --- Firebase Google sign-in ------------------------------------------
+
+
+class FirebaseSignInRequest(BaseModel):
+    """Body of POST /api/auth/firebase.
+
+    A length floor is not security (the token is verified properly below) — it
+    rejects an obviously empty field before any key fetching happens, so a
+    busted client costs no network round trip to Google.
+    """
+
+    id_token: str = Field(min_length=64, max_length=8192)
+
+
+@router.post("/firebase")
+async def firebase_signin_endpoint(
+    payload: FirebaseSignInRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Turn a Firebase ID token into a CartFlow session.
+
+    This is the popup counterpart of the `/google/callback` redirect below, and
+    it deliberately shares that flow's decisions:
+
+      * a returning Google user (matched by google_sub, then email) gets a
+        session and is sent to /discover;
+      * a brand-new Google user is sent to `/signup?google=<token>` to choose a
+        persona, because Google proves an email address but says nothing about
+        whether someone is a student, an individual or a brand.
+
+    The response body carries `next` rather than a server-side redirect: the
+    call is made by `fetch` from the page, which cannot follow a 303 into a
+    Set-Cookie any more reliably than it can read a cross-origin one. The client
+    assigns `location` once it has the answer.
+    """
+    if not settings.firebase_enabled:
+        raise ConflictError("Google sign-in is not enabled.")
+
+    identity = firebase_auth.verify_id_token(payload.id_token)
+
+    # Only a Google-verified address may create or match an account: an
+    # unverified one would let somebody claim an email they do not own.
+    if not identity["email_verified"]:
+        raise UnauthorizedError("Google has not verified that email address yet.")
+
+    user = await find_user_for_google(db, sub=identity["sub"], email=identity["email"])
+
+    if user is None:
+        token = google_oauth.issue_finish_signup_token(identity)
+        return JSONResponse({"next": f"/signup?google={token}"})
+
+    raw_token = await create_session(
+        db,
+        user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+    # Remembered, for the same reason the redirect flow remembers: choosing
+    # Google means Google is the durable login.
+    response = JSONResponse({"next": "/discover"})
+    _set_session_cookie(response, raw_token, remember=True)
+    return response
 
 
 # --- Google OAuth -----------------------------------------------------

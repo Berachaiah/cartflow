@@ -665,6 +665,13 @@ html[data-theme="light"] .cf-avm-link{background:#fff}
 
 {% block extra_style %}{% endblock %}
 </style>
+
+{# Anything a page needs in <head> that is NOT a CSS rule — a stylesheet <link>,
+   a preload, a page-specific meta tag. It exists as its own block because
+   `extra_style` sits INSIDE the inline <style> element above: a <link> written
+   there is not a link, it is invalid text inside a stylesheet, so the file is
+   silently never fetched and the page renders unstyled. #}
+{% block head_extra %}{% endblock %}
 </head>
 <body class="bg-background text-[var(--c-text)] font-body">
 

@@ -29,7 +29,10 @@
     <div class="flex justify-end -mb-1">{{ theme_switch() }}</div>
 
     <div id="authHeader">
-      <a href="/" aria-label="CartFlow home">
+      {# The mark on an auth screen goes to the landing page, not the feed: a
+         signed-out visitor tapping it wants to know what this is, and /welcome
+         is now the page that answers that. #}
+      <a href="/welcome" aria-label="CartFlow home">
         <img src="{{ url_for('static', path='images/logo-icon.png') }}"
              alt="CartFlow" class="auth-logo">
       </a>
@@ -41,4 +44,10 @@
 
   </div>
 </div>
+
+{# Shared by every auth screen: the Google button on /login and /signup is the
+   same control with two possible backends (Firebase popup, else the server
+   redirect). Loaded here rather than per page so the two cannot drift. It exits
+   immediately on screens with no Google button. #}
+<script src="{{ url_for('static', path='js/cartflow-google.js') }}" defer></script>
 {% endblock %}

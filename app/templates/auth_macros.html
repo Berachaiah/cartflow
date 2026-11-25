@@ -89,10 +89,28 @@
 {% endmacro %}
 
 
-{# Google button. Rendered only where the caller has confirmed OAuth is
-   configured — see pages.py. #}
-{% macro google_button(label="Continue with Google", id="googleBtn") %}
-<button type="button" class="btn btn-secondary" id="{{ id }}">
+{# Google button.
+
+   ONE button, two possible backends, decided at click time by
+   cartflow-google.js:
+     * Firebase is configured → the page signs in with the SDK popup and posts
+       the ID token to /api/auth/firebase (settings.firebase_public_config is
+       the PUBLIC web config, which is why it can live in a data attribute);
+     * only the server-side OAuth client is configured → the button navigates
+       to /api/auth/google/login, the redirect flow that needs no JavaScript;
+     * neither → the button renders disabled with a reason, rather than a
+       control that looks live and does nothing.
+
+   `intent` rides along to the redirect flow and is ignored by the Firebase
+   path, which learns the same thing from the endpoint's `next`. #}
+{% macro google_button(label="Continue with Google", id="googleBtn", intent="login") %}
+{% set firebase = firebase_public_config %}
+<button type="button" class="btn btn-secondary" id="{{ id }}"
+        data-google-intent="{{ intent }}"
+        data-google-oauth="{{ '1' if google_oauth_enabled else '0' }}"
+        {% if firebase %}data-google-firebase='{{ firebase | tojson }}'{% endif %}
+        {% if not google_signin_enabled %}disabled aria-disabled="true"
+        title="Google sign-in isn't configured on this install yet"{% endif %}>
   <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
     <path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.4 6.1 29.5 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/>
     <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.4 6.1 29.5 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/>
@@ -101,4 +119,7 @@
   </svg>
   <span class="btn-label">{{ label }}</span>
 </button>
+{% if not google_signin_enabled %}
+<p class="field-hint">Google sign-in isn't configured on this install yet.</p>
+{% endif %}
 {% endmacro %}
