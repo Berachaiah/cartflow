@@ -40,7 +40,11 @@ _HEADING = re.compile(r"<h([1-4])\s[^>]*class=\"([^\"]*)\"")
 # `.cf-splash-word` is the wordmark on the boot splash: base.html styles it at
 # 26px/900 in the display face, over a dark and a light palette. It is a
 # component, not a heading tier — the only h1 in the app that is a logo.
-SELF_STYLED = ("auth-title", "section-label", "cf-splash-word")
+# `.lp-h1` / `.lp-h2` are the landing page's two display steps. They are clamped
+# rather than fixed (34→62px and 23→34px) so a phone headline is not a desktop
+# headline shrunk to 8 words a line, which is a job a utility class cannot do;
+# cartflow-landing.css sets both the face and the size for each.
+SELF_STYLED = ("auth-title", "section-label", "cf-splash-word", "lp-h1", "lp-h2")
 
 
 def _canonical_section_classes() -> set[str]:
