@@ -232,3 +232,94 @@ function bindPasswordStrength(inputId, meterId) {
     if (text) text.textContent = label;
   });
 }
+
+/* ===================== LIVE VALIDATION =====================
+ * Interactive error states for every field on the auth screens.
+ *
+ * The markup already ships an empty `.field-error` node per field and the
+ * helpers above to fill it; what was missing was *when* to fill it. Nothing
+ * happened until the server said no, so a mistyped email cost a round trip and
+ * a page that scrolled to an alert at the top.
+ *
+ * These listeners are delegated and attribute-driven, so a new field inherits
+ * the behaviour by existing: `<input class="input" id="x" required>` plus
+ * `#xError` is the whole contract. A field is only checked when its error node
+ * exists, which keeps search boxes and inline composers out of it.
+ *
+ * Only three rules are enforced here — required, email shape, minlength. Any
+ * server rule that is stricter stays the server's to report; guessing at it in
+ * the browser would block valid input.
+ */
+(function () {
+  const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  const SELECTOR = "input.input, textarea.input, select.input";
+
+  function messageFor(el) {
+    const value = (el.value || "").trim();
+    if (el.required && !value) {
+      return el.dataset.requiredMessage || "This field is required.";
+    }
+    if (value && el.type === "email" && !EMAIL.test(value)) {
+      return "Enter a valid email address.";
+    }
+    if (value && el.minLength > 0 && value.length < el.minLength) {
+      return "Use at least " + el.minLength + " characters.";
+    }
+    return null;
+  }
+
+  function shake(field) {
+    if (!field) return;
+    /* Reflow between remove/add, or a second error on the same field is a
+       class that is already there and therefore animates nothing. */
+    field.classList.remove("cf-shake");
+    void field.offsetWidth;
+    field.classList.add("cf-shake");
+  }
+
+  function check(el, opts) {
+    if (!el || el.disabled || !el.id || el.type === "hidden") return true;
+    if (!document.getElementById(el.id + "Error")) return true;
+    const message = messageFor(el);
+    if (message) {
+      setFieldError(el.id, message);
+      if (opts && opts.shake) shake(el.closest(".field"));
+      return false;
+    }
+    if ((el.value || "").trim()) setFieldValid(el.id);
+    else clearFieldError(el.id);
+    return true;
+  }
+
+  /* Validate when a field is left, and clear as soon as the mistake is fixed
+     while typing — waiting for another blur would double the correction. */
+  document.addEventListener("blur", (e) => {
+    const el = e.target;
+    if (el instanceof Element && el.matches(SELECTOR)) check(el, { shake: true });
+  }, true);
+
+  document.addEventListener("input", (e) => {
+    const el = e.target;
+    if (!(el instanceof Element) || !el.matches(SELECTOR)) return;
+    const field = el.closest(".field");
+    if (field && field.classList.contains("invalid")) check(el);
+  }, true);
+
+  /* Block a submit the user can already see is wrong, and put the caret on the
+     first bad field instead of letting the request bounce. Capture phase so
+     the page's own submit handler never runs on invalid input. */
+  document.addEventListener("submit", (e) => {
+    const form = e.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    const fields = Array.from(form.querySelectorAll(SELECTOR));
+    let firstBad = null;
+    fields.forEach((el) => {
+      if (!check(el, { shake: true }) && !firstBad) firstBad = el;
+    });
+    if (!firstBad) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    firstBad.focus({ preventScroll: true });
+    firstBad.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, true);
+})();

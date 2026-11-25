@@ -631,3 +631,63 @@ select.input{
 
 /* Make the HTML hidden attribute always win over display rules */
 [hidden] { display: none !important; }
+
+/* ---------- auth: phone-first finish (reference screens) -------------------
+
+   The signed-out screens are the first thing a new phone opens, so they get
+   the warmer treatment the reference designs use: a soft halo behind the card,
+   a pill-shaped primary action that reads as the one thing to press, and an
+   OTP field whose digits are spaced like a code rather than a password.
+
+   All of it is scoped to `.auth-card` so the same button elsewhere in the app
+   keeps its rectangular, denser shape — these are app screens, not the shell. */
+
+.auth-wrap{
+  background:
+    radial-gradient(120% 55% at 50% -12%, rgba(124,198,255,.14), transparent 62%),
+    radial-gradient(90% 45% at 108% 4%, rgba(255,181,71,.10), transparent 58%);
+}
+@media (max-width:639px){
+  .auth-wrap{ padding-top:calc(26px + var(--safe-t)); }
+}
+
+.auth-card .btn{
+  border-radius:999px;
+  min-height:52px;
+  font-size:16px;
+}
+.auth-card .btn-primary{
+  background:linear-gradient(135deg, var(--brand) 0%, var(--brand-dark) 100%);
+  box-shadow:0 10px 26px rgba(124,198,255,.26);
+}
+.auth-card .btn-primary:hover:not(:disabled){
+  background:linear-gradient(135deg, var(--brand) 0%, var(--brand-dark) 100%);
+  box-shadow:0 14px 32px rgba(124,198,255,.42);
+}
+.auth-card .input{ border-radius:16px; }
+
+/* One code field, not six boxes: six inputs lose the paste target, fight the
+   IME and break autofill of `one-time-code`. Wide tracking gives the same
+   "this is a code" read while staying a single control. */
+.otp-input{
+  text-align:center;
+  font-size:22px;
+  font-weight:700;
+  letter-spacing:.42em;
+  padding-left:.42em;
+  font-variant-numeric:tabular-nums;
+}
+
+/* The shake that tells you the submit was refused before the message is read.
+   Triggered by cartflow-forms.js, not by the `.invalid` class — that class
+   stays put once set, so it can only animate the first time. */
+.field.cf-shake .input{ animation:cf-shake .34s cubic-bezier(.36,.07,.19,.97); }
+@keyframes cf-shake{
+  10%,90%{ transform:translateX(-1px); }
+  20%,80%{ transform:translateX(2px); }
+  30%,50%,70%{ transform:translateX(-4px); }
+  40%,60%{ transform:translateX(4px); }
+}
+@media (prefers-reduced-motion:reduce){
+  .field.cf-shake .input{ animation:none; }
+}

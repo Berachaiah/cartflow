@@ -33,6 +33,12 @@
 
    `extra_class` lets callers add borders/ring/transition without editing here.
 
+   Every avatar carries `data-avatar-name` / `data-avatar-user`, which is how
+   base.html's preview modal knows what to open: tapping a picture shows it
+   enlarged with the account's name and a link, instead of navigating. The
+   attributes live here rather than at each call site so no surface can draw an
+   avatar that is not previewable.
+
    Both branches keep the same box classes so swapping one for the other never
    shifts the layout, and both are aria-hidden with an empty alt: the account's
    name is always rendered as real text next to the picture, so announcing it
@@ -42,9 +48,11 @@
 {%- if src -%}
 <img src="{{ src }}" alt="" loading="lazy" decoding="async"
      class="{{ size_class }} {{ radius_class }} {{ extra_class }} shrink-0 object-cover bg-card"
-     aria-hidden="true">
+     aria-hidden="true"
+     data-avatar-name="{{ name }}" data-avatar-user="{{ seed }}">
 {%- else -%}
 <svg class="{{ size_class }} {{ radius_class }} {{ extra_class }} shrink-0 overflow-hidden"
-     aria-hidden="true" focusable="false"><use href="#cf-avatar"/></svg>
+     aria-hidden="true" focusable="false"
+     data-avatar-name="{{ name }}" data-avatar-user="{{ seed }}"><use href="#cf-avatar"/></svg>
 {%- endif -%}
 {%- endmacro %}
